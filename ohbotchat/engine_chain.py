@@ -82,6 +82,16 @@ class ChainEngine:
         if r.results[0].flagged:
             raise EngineError("moderated")
 
+    async def synthesize(self, text: str) -> bytes:
+        c = self._cfg.openai
+        speech = await self._stage(
+            "tts",
+            lambda: self._client.audio.speech.create(
+                model=c.tts_model, voice=c.tts_voice, input=text, response_format="pcm", timeout=c.timeout_s
+            ),
+        )
+        return speech.content
+
     async def respond(self, heard: str, history: list[dict]) -> Reply:
         c = self._cfg.openai
         await self._moderate("moderation_in", heard)
@@ -96,10 +106,4 @@ class ChainEngine:
         if not text:
             raise EngineError("other", "empty chat reply")
         await self._moderate("moderation_out", text)
-        speech = await self._stage(
-            "tts",
-            lambda: self._client.audio.speech.create(
-                model=c.tts_model, voice=c.tts_voice, input=text, response_format="pcm", timeout=c.timeout_s
-            ),
-        )
-        return Reply(heard=heard, text=text, pcm=speech.content)
+        return Reply(heard=heard, text=text, pcm=await self.synthesize(text))

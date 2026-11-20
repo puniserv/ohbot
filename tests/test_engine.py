@@ -131,3 +131,10 @@ async def test_error_mapping(exc, kind):
     with pytest.raises(EngineError) as e:
         await eng.respond("x", [])
     assert e.value.kind == kind
+
+
+async def test_synthesize_returns_pcm():
+    client = FakeClient()
+    eng, _ = make(client)
+    assert await eng.synthesize("Hej") == b"\x01\x00" * 10
+    assert dict(client.calls)["tts"]["input"] == "Hej"
