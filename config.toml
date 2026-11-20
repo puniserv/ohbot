@@ -39,3 +39,8 @@ listening = [0, 10, 0]
 thinking = [0, 0, 10]
 speaking = [10, 10, 10]
 error = [10, 0, 0]
+
+[robot]
+# Flip a lip if the mouth opens the wrong way on the real robot.
+lip_invert_top = false
+lip_invert_bottom = false

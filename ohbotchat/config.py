@@ -53,6 +53,13 @@ class ColoursConfig:
 
 
 @dataclass
+class RobotConfig:
+    # real motor direction of the lips is unverified; flip here if the mouth moves the wrong way
+    lip_invert_top: bool = False
+    lip_invert_bottom: bool = False
+
+
+@dataclass
 class Config:
     openai: OpenAIConfig = field(default_factory=OpenAIConfig)
     conversation: ConversationConfig = field(default_factory=ConversationConfig)
@@ -60,6 +67,7 @@ class Config:
     vad: VadConfig = field(default_factory=VadConfig)
     barge_in: BargeInConfig = field(default_factory=BargeInConfig)
     colours: ColoursConfig = field(default_factory=ColoursConfig)
+    robot: RobotConfig = field(default_factory=RobotConfig)
     api_key: str | None = None
     root: Path = ROOT
 
