@@ -1,0 +1,10 @@
+.venv/
+.env
+ohbotData/
+fw-debugprobe/
+__pycache__/
+*.pyc
+.pytest_cache/
+cache/
+dist/
+build/
