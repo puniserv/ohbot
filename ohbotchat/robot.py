@@ -82,6 +82,10 @@ class OhbotDriver:
     def connected(self) -> bool:
         return self._o is not None and bool(self._o.connected)
 
+    @property
+    def port(self) -> str:
+        return getattr(self._o, "port", "")
+
     def move(self, motor: int, pos: float, speed: int) -> None:
         self._o.move(motor, pos, speed)
 

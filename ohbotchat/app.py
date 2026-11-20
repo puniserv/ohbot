@@ -50,6 +50,7 @@ class App:
         for t in self._background:
             t.cancel()
         self.speaker.stop()
+        self.listener.stop_ptt()
         await asyncio.gather(*self._background, return_exceptions=True)
         await asyncio.to_thread(self.robot.close)
 
