@@ -1,0 +1,41 @@
+# Model choice verified 2026-11-21 against developers.openai.com/api/docs (models, speech-to-text, text-to-speech).
+# Doctor (ohbotchat doctor) checks that these ids exist for the key in use.
+
+[openai]
+# Recommended file-transcription model; Polish is requested via `languages = ["pl"]`.
+# (whisper-1 / gpt-4o-*-transcribe are deprecated, shutdown 2027-02-26.)
+stt_model = "gpt-transcribe"
+# Current small, cheap tier. gpt-6-luna is cheaper still if quality is enough.
+chat_model = "gpt-5.4-mini"
+# Only non-Realtime TTS left; Polish follows Whisper language list. Shutdown announced 2027-01-06.
+tts_model = "gpt-4o-mini-tts"
+# Docs recommend marin or cedar for best quality.
+tts_voice = "marin"
+moderation_model = "omni-moderation-latest"
+max_tokens = 150
+timeout_s = 20
+
+[conversation]
+persona = "dzieci"
+history_turns = 10
+mode = "ptt"
+
+[wake]
+words = ["ohbot", "hej ohbot", "ochbot", "obot", "ołbot"]
+
+[vad]
+aggressiveness = 2
+silence_ms = 800
+min_speech_ms = 300
+
+[barge_in]
+enabled = false
+threshold = 0.15
+hold_ms = 300
+
+[colours]
+idle = [0, 0, 3]
+listening = [0, 10, 0]
+thinking = [0, 0, 10]
+speaking = [10, 10, 10]
+error = [10, 0, 0]
