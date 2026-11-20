@@ -142,12 +142,15 @@ class Robot:
         except Exception as e:
             self._set_connected(False, str(e))
 
+    def _colour(self) -> list[int]:
+        return getattr(self._cfg.colours, _COLOUR_KEY[self._state])
+
     def _apply_colour(self) -> None:
-        self._guard(self._driver.eye_colour, *getattr(self._cfg.colours, _COLOUR_KEY[self._state]))
+        self._guard(self._driver.eye_colour, *self._colour())
 
     def set_state(self, state: State) -> None:
         self._state = state
-        self._pool.submit(self._apply_colour)
+        self._submit(self._driver.eye_colour, *self._colour())
 
     def lips(self, top: float, bottom: float) -> None:
         r = self._cfg.robot
