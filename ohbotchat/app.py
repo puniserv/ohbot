@@ -26,6 +26,7 @@ GENERIC_ERROR = "Coś poszło nie tak – szczegóły w logu"
 _FALLBACK_KEY = {"network": "no_network", "moderated": "moderated", "empty": "not_heard"}
 TICK_S = 0.1  # eyes follow the face at camera speed (~10 fps); the old 0.25 s made the gaze lag
 GREET_AFTER_S = 1.0  # a child walking past must not be greeted
+STALE_FACE_S = 1.0  # a hung cap.read() must not leave the robot tracking a ghost
 
 
 class App:
@@ -128,6 +129,8 @@ class App:
     async def _tick_loop(self) -> None:
         while True:
             now, face = time.monotonic(), self.vision.face
+            if face is not None and now - face.t > STALE_FACE_S:
+                face = None
             self.robot.tick(now, face)
             self._auto_greet(now, face)
             await asyncio.sleep(TICK_S)

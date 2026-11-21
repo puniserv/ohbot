@@ -28,7 +28,6 @@ Detect = Callable[[np.ndarray], list[Box]]
 class Face:
     x: float  # -1..1 after mirror and offset
     y: float  # -1..1, up is positive
-    size: float  # face width / frame width
     t: float  # time.monotonic() of the frame
 
 
@@ -172,7 +171,7 @@ class Vision:
             a = c.smoothing
             x, y = a * self._ema[0] + (1 - a) * x, a * self._ema[1] + (1 - a) * y
         self._ema = (x, y)
-        return Face(x, y, box[2] / w, now)
+        return Face(x, y, now)
 
     def _show(self, now: float, face: Face | None) -> None:
         was_seen = self.face is not None

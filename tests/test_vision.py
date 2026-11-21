@@ -93,7 +93,7 @@ def test_largest_face_is_kept_and_published():
     r = rig()
     r.boxes[:] = [(0, 0, 20, 20, 0.9), RIGHT]
     r.vision.step(10.0)
-    assert r.vision.face == Face(0.5, 0.0, 40 / W, 10.0)
+    assert r.vision.face == Face(0.5, 0.0, 10.0)
     assert r.cams[0].index == 0 and r.vision.ok is True
     assert r.bus.events == [("camera", {"ok": True}), ("face", {"visible": True, "x": 0.5, "y": 0.0})]
 

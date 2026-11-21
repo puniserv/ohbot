@@ -306,7 +306,7 @@ def test_close_mouth_and_neutral():
 
 
 def face(x=0.0, y=0.0):
-    return Face(x, y, 0.2, 0.0)
+    return Face(x, y, 0.0)
 
 
 def moves(driver):

@@ -1083,7 +1083,7 @@ async def test_voice_change_restarts_phrase_generation_for_the_new_voice():
     app._ensure_task.cancel()
 
 
-FACE = Face(0.0, 0.0, 0.2, 0.0)
+FACE = Face(0.0, 0.0, 0.0)
 GREETING_PCM = b"SAY-Cze\xc5"
 
 
@@ -1167,7 +1167,7 @@ async def test_auto_greet_in_ptt_mode_only_greets():
 async def test_start_runs_the_camera_and_the_tick_feeds_its_face_to_the_robot():
     cfg = load_config(env={})
     driver, vision = NullDriver(), FakeVision()
-    vision.face = FACE
+    vision.face = Face(0.0, 0.0, time.monotonic())
     app = App(cfg, engine=FakeEngine(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(driver, cfg, EventBus()), vision=vision, mic_stream=MicStreams())
     await app.start()
     await asyncio.sleep(0.05)
@@ -1175,3 +1175,15 @@ async def test_start_runs_the_camera_and_the_tick_feeds_its_face_to_the_robot():
     assert vision.running and ("move", EYETURN, 5.0, 8) in driver.calls
     await app.close()
     assert not vision.running
+
+
+async def test_a_stale_face_from_a_hung_camera_is_not_tracked():
+    cfg = load_config(env={})
+    driver, vision = NullDriver(), FakeVision()
+    vision.face = Face(0.5, 0.0, time.monotonic() - 2)  # cap.read() hung after this frame
+    app = App(cfg, engine=FakeEngine(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(driver, cfg, EventBus()), vision=vision, mic_stream=MicStreams())
+    await app.start()
+    await asyncio.sleep(0.05)
+    app.robot.flush()
+    assert ("move", EYETURN, 7.0, 8) not in driver.calls
+    await app.close()
