@@ -11,13 +11,18 @@ dependencies = [
     "fastapi",
     "uvicorn",
     "ohbot",
+    "websockets>=17.4",
 ]
 
 [project.scripts]
 ohbotchat = "ohbotchat.__main__:main"
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio"]
+dev = [
+    "httpx>=0.28.1",
+    "pytest",
+    "pytest-asyncio",
+]
 
 [build-system]
 requires = ["hatchling"]

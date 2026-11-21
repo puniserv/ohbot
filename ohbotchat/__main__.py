@@ -2,9 +2,12 @@ import argparse
 import asyncio
 import sys
 import threading
+import webbrowser
 
 from .config import load_config
 from .doctor import CheckResult, run_doctor
+from .engine import EngineError
+from .web import DEFAULT_PORT
 
 _MARK = {True: "✔", False: "✘", None: "-"}
 _ERROR_HINTS = {
@@ -83,21 +86,58 @@ async def _terminal() -> int:
     return 0
 
 
+class NoKeyEngine:
+    """Lets the web UI start without a key; every turn then reports the problem on screen."""
+
+    async def _fail(self, *args, **kwargs):
+        raise EngineError("auth", "Brak OPENAI_API_KEY. Uzupełnij plik .env.")
+
+    transcribe = respond = synthesize = _fail
+
+
+async def _web(port: int) -> int:
+    import uvicorn
+
+    from .app import App
+    from .web import create_app, server_config
+
+    config = load_config()
+    app = App(config, engine=None if config.api_key else NoKeyEngine())
+    server = uvicorn.Server(server_config(create_app(app), port))
+
+    async def open_browser() -> None:
+        while not server.started:
+            await asyncio.sleep(0.1)
+        webbrowser.open(f"http://127.0.0.1:{port}/")
+
+    opener = None
+    try:
+        await app.start()
+        opener = asyncio.create_task(open_browser())
+        print(f"Ohbot działa na http://127.0.0.1:{port}/ (Ctrl+C = wyjście)")
+        await server.serve()
+    finally:
+        if opener:
+            opener.cancel()
+        await app.close()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ohbotchat", description="Rozmowa głosowa z robotem Ohbot")
     parser.add_argument("command", nargs="?", choices=["doctor"])
     parser.add_argument("--no-web", action="store_true", help="pętla w terminalu zamiast strony w przeglądarce")
+    parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="port strony (tylko 127.0.0.1)")
     args = parser.parse_args(argv)
     try:
         if args.command == "doctor":
             return asyncio.run(_doctor())
         if args.no_web:
             return asyncio.run(_terminal())
+        return asyncio.run(_web(args.port))
     except KeyboardInterrupt:
         print()
         return 0
-    print("Interfejs w przeglądarce jeszcze nie jest gotowy; użyj `ohbotchat --no-web`.")
-    return 2
 
 
 if __name__ == "__main__":

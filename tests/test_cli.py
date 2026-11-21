@@ -11,9 +11,16 @@ def test_format_result():
     assert format_result(CheckResult("C", None, "pominięto")).startswith("- C")
 
 
-def test_web_mode_not_ready_returns_error(capsys):
-    assert main([]) == 2
-    assert "--no-web" in capsys.readouterr().out
+async def test_no_key_engine_reports_auth_error_instead_of_crashing():
+    import pytest
+
+    from ohbotchat.__main__ import NoKeyEngine
+    from ohbotchat.engine import EngineError
+
+    for call in (NoKeyEngine().transcribe(b""), NoKeyEngine().respond("", []), NoKeyEngine().synthesize("x", publish=False)):
+        with pytest.raises(EngineError) as e:
+            await call
+        assert e.value.kind == "auth"
 
 
 class FakeApp:
