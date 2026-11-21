@@ -142,8 +142,13 @@ class Listener:
             chunks.append(chunk)
             self._meter(chunk)
 
-        self._stream = self._factory(on_chunk)
-        self._stream.start()
+        stream = self._factory(on_chunk)
+        try:
+            stream.start()
+        except Exception:
+            stream.close()
+            raise
+        self._stream = stream
 
     def stop_ptt(self) -> bytes:
         stream, self._stream = self._stream, None

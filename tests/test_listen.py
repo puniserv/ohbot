@@ -124,3 +124,16 @@ def test_ptt_publishes_level_for_the_meter():
         streams[0].cb(b"\x00\x40" * 480)
     lis.stop_ptt()
     assert [e.data["level"] for e in q if e.type == "level"] == [pytest.approx(0.5, abs=0.01), 0.0]
+
+
+def test_start_ptt_failure_closes_the_stream_and_allows_a_retry():
+    streams = []
+
+    class Broken(FakeStream):
+        def start(self):
+            raise OSError("no input device")
+
+    lis = Listener(load_config(env={}), EventBus(), lambda cb: streams.append(Broken(cb)) or streams[-1])
+    with pytest.raises(OSError):
+        lis.start_ptt()
+    assert not lis.recording and streams[0].log == ["close"]
