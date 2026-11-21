@@ -74,7 +74,7 @@ async def run_doctor(
         start = time.perf_counter()
         try:
             with _mapped_errors():
-                page = await client.models.list()
+                page = await client.models.list(timeout=c.timeout_s)
                 api["ids"] = {m.id async for m in page}
         except EngineError as e:
             api["error"] = e

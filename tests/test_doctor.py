@@ -32,7 +32,8 @@ class FakeClient:
         self.models = NS(list=self._list)
         self.chat = NS(completions=NS(create=self._chat))
 
-    async def _list(self):
+    async def _list(self, **kw):
+        self.list_kw = kw
         if self.models_error:
             raise self.models_error
         return Page(self.ids)
@@ -113,6 +114,13 @@ async def test_bad_key_fails_key_check():
     res = await run(FakeClient(models_error=err))
     assert res[1].ok is True  # the API answered, so the network is fine
     assert res[2].ok is False and "OPENAI_API_KEY" in res[2].hint
+
+
+async def test_models_list_uses_the_configured_timeout():
+    client, cfg = FakeClient(), cfg_with_key()
+    cfg.openai.timeout_s = 3
+    await run(client, cfg)
+    assert client.list_kw == {"timeout": 3}
 
 
 async def test_network_error_fails_internet_check():
