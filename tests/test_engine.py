@@ -231,6 +231,21 @@ async def test_every_persona_starts_with_the_child_safety_preamble(persona):
     assert system.startswith(SAFETY) and "przemoc" in SAFETY and len(system) > len(SAFETY)
 
 
+async def test_refused_chat_reply_counts_as_moderated():
+    client = FakeClient(text=None)
+    orig = client._chat
+
+    async def chat(**kw):
+        r = await orig(**kw)
+        r.choices[0].message.refusal = "I can't help with that."
+        return r
+
+    client.chat.completions.create = chat
+    with pytest.raises(EngineError) as e:
+        await make(client)[0].respond("x", [])
+    assert e.value.kind == "moderated"
+
+
 async def test_truncated_reply_never_keeps_half_of_a_surrogate_pair():
     reply = await make(FakeClient(text='{"text": "Super \\ud83d\\ude0', finish="length"))[0].respond("x", [])
     assert reply.text == "Super"

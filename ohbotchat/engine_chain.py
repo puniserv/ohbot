@@ -167,7 +167,10 @@ class ChainEngine:
                 **({"reasoning_effort": c.reasoning_effort} if c.reasoning_effort else {}),
             ),
         )
-        text, gesture = _parse_reply((r.choices[0].message.content or "").strip())
+        message = r.choices[0].message
+        if getattr(message, "refusal", None):
+            raise EngineError("moderated")
+        text, gesture = _parse_reply((message.content or "").strip())
         if not text:
             raise EngineError("other", "empty chat reply")
         await self._moderate("moderation_out", text)
