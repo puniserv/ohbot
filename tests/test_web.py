@@ -1,4 +1,5 @@
 import asyncio
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,6 +34,7 @@ class FakeApp:
         self.robot = FakeRobot()
         self.calls = []
         self.listener = type("L", (), {"recording": False})()
+        self.vision = type("V", (), {"ok": True})()
         self.closed = 0
         self.mic_error = None
 
@@ -485,3 +487,24 @@ def test_idle_is_held_while_any_tab_has_the_test_panel_open(client, app):
         a.send_json({"cmd": "test_panel", "open": False})  # a never reopened; closing twice must not go negative
         sync(a, app)
         assert app.robot.hold_idle is False
+
+
+def test_snapshot_reports_the_camera(client, app):
+    app.vision.ok = False
+    with connect(client) as ws:
+        assert snapshot(ws)["camera"] is False
+
+
+def test_camera_settings_are_served_and_applied(client, app):
+    assert client.get("/api/settings").json()["values"]["camera"]["index"] == 0
+    r = client.post("/api/settings", json={"camera": {"index": 1, "mirror": True}}, headers=ORIGIN)
+    assert r.status_code == 200 and app.config.camera.index == 1 and app.config.camera.mirror is True
+    assert client.post("/api/settings", json={"camera": {"index": 10}}, headers=ORIGIN).status_code == 400
+
+
+def test_every_settings_field_in_the_page_is_an_editable_key(client):
+    from ohbotchat.config import EDITABLE
+
+    keys = re.findall(r'data-key="(\w+)\.(\w+)"', client.get("/").text)
+    assert all(k in EDITABLE[s] for s, k in keys)
+    assert {k for s, k in keys if s == "camera"} == set(EDITABLE["camera"])

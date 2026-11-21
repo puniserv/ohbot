@@ -6,7 +6,7 @@ QUEUE_SIZE = 200  # a stalled websocket client must not make the queue grow with
 
 @dataclass
 class Event:
-    type: str  # "state" | "stage" | "heard" | "reply" | "error" | "robot" | "level" | "info"
+    type: str  # "state" | "stage" | "heard" | "reply" | "error" | "robot" | "level" | "info" | "face" | "camera"
     data: dict = field(default_factory=dict)
 
 

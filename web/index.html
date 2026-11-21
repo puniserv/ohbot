@@ -63,6 +63,23 @@
     <label class="wide">Tekst <input type="text" data-key="conversation.greeting" maxlength="300"></label>
     <label><input type="checkbox" data-key="conversation.fillers"> „Hmm…” gdy odpowiedź się spóźnia</label>
   </fieldset>
+  <fieldset><legend>Kamera</legend>
+    <p class="note">Obraz nie opuszcza aplikacji: nie jest zapisywany ani wysyłany. Robot zna tylko położenie twarzy.</p>
+    <div id="face-box" title="Gdzie robot widzi twarz"><div id="face-dot"></div><span id="face-error" hidden>Kamera niedostępna</span></div>
+    <label><input type="checkbox" data-key="camera.enabled"> Śledzenie twarzy</label>
+    <label>Numer kamery <input type="number" data-key="camera.index" min="0" max="9" step="1"></label>
+    <label><input type="checkbox" data-key="camera.mirror"> Odbicie lustrzane</label>
+    <label>Przesunięcie poziome <input type="range" data-key="camera.offset_x" min="-1" max="1" step="0.05"><output></output></label>
+    <label>Przesunięcie pionowe <input type="range" data-key="camera.offset_y" min="-1" max="1" step="0.05"><output></output></label>
+    <label>Ruch głowy <input type="range" data-key="camera.head_gain" min="0" max="5" step="0.1"><output></output></label>
+    <label>Ruch oczu <input type="range" data-key="camera.eye_gain" min="0" max="5" step="0.1"><output></output></label>
+    <label>Martwa strefa głowy <input type="range" data-key="camera.deadband" min="0" max="3" step="0.1"><output></output></label>
+    <label>Wygładzanie <input type="range" data-key="camera.smoothing" min="0" max="0.95" step="0.05"><output></output></label>
+    <label>Pewność wykrycia <input type="range" data-key="camera.min_score" min="0.3" max="0.99" step="0.01"><output></output></label>
+    <label>Brak twarzy po (s) <input type="number" data-key="camera.lost_after_s" min="0.5" max="30" step="0.5"></label>
+    <label><input type="checkbox" data-key="camera.auto_greet"> Powitanie, gdy ktoś podejdzie</label>
+    <label>Przerwa między powitaniami (s) <input type="number" data-key="camera.greet_cooldown_s" min="10" max="3600" step="10"></label>
+  </fieldset>
   <fieldset><legend>Prompt <span id="prompt-persona"></span></legend>
     <p class="note">Zasady bezpieczeństwa dla dzieci są dodawane zawsze i nie da się ich tu zmienić.</p>
     <textarea id="prompt" maxlength="8000" rows="10"></textarea>

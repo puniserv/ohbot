@@ -59,6 +59,10 @@ function setRobot(connected) {
   b.classList.toggle("ok", connected);
 }
 
+function setCamera(ok) {
+  $("face-error").hidden = ok !== false;
+}
+
 function applySettings(s) {
   $("mode").value = s.mode;
   $("mode-cost").hidden = s.mode === "ptt";
@@ -104,6 +108,7 @@ const handlers = {
     applySettings(d);
     setState(d.state);
     setRobot(d.robot);
+    setCamera(d.camera);
     $("nokey").hidden = d.has_key;
     if (d.mic_error) toast(d.mic_error);
   },
@@ -117,6 +122,15 @@ const handlers = {
   reply: (d) => bubble("robot", "Ohbot:", d.text),
   error: (d) => toast(ERRORS[d.kind] || (d.kind === "other" && d.message) || "Coś poszło nie tak – szczegóły w logu"),
   robot: (d) => setRobot(d.connected),
+  camera: (d) => setCamera(d.ok),
+  face: (d) => {
+    const dot = $("face-dot");
+    dot.classList.toggle("seen", d.visible);
+    if (d.visible) {
+      dot.style.left = 50 + d.x * 50 + "%";
+      dot.style.top = 50 - d.y * 50 + "%"; // y is up
+    }
+  },
   level: (d) => ($("meter-bar").style.width = Math.min(100, d.level * 100) + "%"),
   settings: applySettings,
   doctor: (d) => showDoctor(d.results),
