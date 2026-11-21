@@ -114,6 +114,19 @@ def test_validate_settings_accepts_known_keys_and_normalises():
     assert isinstance(out["robot"]["lip_closed"], float)
 
 
+def test_camera_settings_are_editable_and_normalised():
+    from ohbotchat.config import editable_settings, validate_settings
+
+    values = editable_settings(load_config(env={}))["camera"]
+    assert values == {
+        "enabled": True, "index": 0, "mirror": False, "offset_x": 0.0, "offset_y": 0.0, "head_gain": 3.0,
+        "eye_gain": 4.0, "deadband": 0.5, "smoothing": 0.5, "min_score": 0.7, "lost_after_s": 3.0,
+        "auto_greet": True, "greet_cooldown_s": 60.0,
+    }
+    out = validate_settings({"camera": {"index": 2, "mirror": True, "offset_x": -1, "greet_cooldown_s": 120}})
+    assert out == {"camera": {"index": 2, "mirror": True, "offset_x": -1.0, "greet_cooldown_s": 120.0}}
+
+
 @pytest.mark.parametrize(
     "bad",
     [
@@ -132,6 +145,14 @@ def test_validate_settings_accepts_known_keys_and_normalises():
         {"conversation": {"greeting": "Cześć\x7f"}},  # DEL written raw makes tomllib reject the file
         {"conversation": {"greeting": "Cześć\nhej"}},
         {"conversation": {"greeting": "a\x00b"}},
+        {"camera": {"index": 10}},
+        {"camera": {"index": 1.5}},
+        {"camera": {"offset_x": 1.1}},
+        {"camera": {"smoothing": 0.96}},
+        {"camera": {"min_score": 0.2}},
+        {"camera": {"lost_after_s": 0.4}},
+        {"camera": {"greet_cooldown_s": 5}},
+        {"camera": {"enabled": "yes"}},
         {"robot": [1]},
         [1],
     ],

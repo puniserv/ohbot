@@ -86,6 +86,23 @@ class RobotConfig:
 
 
 @dataclass
+class CameraConfig:
+    enabled: bool = True
+    index: int = 0
+    mirror: bool = False  # flip when the robot looks the wrong way
+    offset_x: float = 0.0  # the camera sits beside the robot, not on its axis
+    offset_y: float = 0.0
+    head_gain: float = 3.0
+    eye_gain: float = 4.0
+    deadband: float = 0.5
+    smoothing: float = 0.5
+    min_score: float = 0.7
+    lost_after_s: float = 3.0
+    auto_greet: bool = True
+    greet_cooldown_s: float = 60.0
+
+
+@dataclass
 class Config:
     openai: OpenAIConfig = field(default_factory=OpenAIConfig)
     conversation: ConversationConfig = field(default_factory=ConversationConfig)
@@ -94,6 +111,7 @@ class Config:
     barge_in: BargeInConfig = field(default_factory=BargeInConfig)
     colours: ColoursConfig = field(default_factory=ColoursConfig)
     robot: RobotConfig = field(default_factory=RobotConfig)
+    camera: CameraConfig = field(default_factory=CameraConfig)
     api_key: str | None = None
     root: Path = ROOT
 
@@ -181,6 +199,21 @@ EDITABLE = {
     "vad": {"silence_ms": _number(int, 200, 5000)},
     "wake": {"window_s": _number(float, 1, 60)},
     "conversation": {"greeting": _text(300), "fillers": _flag},
+    "camera": {
+        "enabled": _flag,
+        "index": _number(int, 0, 9),
+        "mirror": _flag,
+        "offset_x": _number(float, -1, 1),
+        "offset_y": _number(float, -1, 1),
+        "head_gain": _number(float, 0, 5),
+        "eye_gain": _number(float, 0, 5),
+        "deadband": _number(float, 0, 3),
+        "smoothing": _number(float, 0, 0.95),
+        "min_score": _number(float, 0.3, 0.99),
+        "lost_after_s": _number(float, 0.5, 30),
+        "auto_greet": _flag,
+        "greet_cooldown_s": _number(float, 10, 3600),
+    },
 }
 
 
