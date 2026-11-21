@@ -64,7 +64,7 @@ def cfg_with_key():
     return cfg
 
 
-async def run(client, cfg=None, interactive=False, driver=None, speaker=None, mic_fn=mic):
+async def run(client, cfg=None, interactive=False, driver=None, speaker=None, mic_fn=mic, camera_fn=lambda cfg: None):
     return await run_doctor(
         cfg or cfg_with_key(),
         interactive=interactive,
@@ -72,14 +72,15 @@ async def run(client, cfg=None, interactive=False, driver=None, speaker=None, mi
         driver=driver or NullDriver(),
         speaker=speaker or FakeSpeaker(),
         mic=mic_fn,
+        camera=camera_fn,
     )
 
 
 async def test_all_good_non_interactive_skips_hardware_actions():
     driver, speaker = NullDriver(), FakeSpeaker()
     res = await run(FakeClient(), driver=driver, speaker=speaker)
-    assert len(res) == 8
-    assert [r.ok for r in res] == [True, True, True, True, True, True, None, True]
+    assert len(res) == 9
+    assert [r.ok for r in res] == [True, True, True, True, True, True, None, True, True]
     assert speaker.played == 0 and driver.calls == []
 
 
@@ -166,3 +167,17 @@ async def test_api_error_is_not_reported_as_bad_key():
     err = openai.InternalServerError("boom", response=_resp(500), body=None)
     res = await run(FakeClient(models_error=err))
     assert res[2].ok is False and "odrzucony" not in res[2].detail and "błąd" in res[2].detail
+
+
+async def test_camera_problem_is_reported_with_a_hint():
+    res = await run(FakeClient(), camera_fn=lambda cfg: "kamera 0 nie zwraca obrazu")
+    assert res[8].name == "Kamera" and res[8].ok is False
+    assert res[8].detail == "kamera 0 nie zwraca obrazu" and "Prywatność" in res[8].hint
+
+
+async def test_disabled_camera_is_skipped_without_opening_it():
+    cfg = cfg_with_key()
+    cfg.camera.enabled = False
+    opened = []
+    res = await run(FakeClient(), cfg=cfg, camera_fn=opened.append)
+    assert res[8].ok is None and opened == []

@@ -317,6 +317,7 @@ async def test_web_doctor_never_touches_the_robot_driver(monkeypatch):
     app.config.api_key = None
     results = await web._run_doctor(app)
     assert touched == [] and next(r for r in results if r.name == "Ohbot").ok is True
+    assert next(r for r in results if r.name == "Kamera").ok is True  # from the running app, not a second open
 
 
 @pytest.mark.parametrize(

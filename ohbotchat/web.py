@@ -37,9 +37,16 @@ class _RunningRobot:
         return self._robot.connected
 
 
+def _running_camera(app):
+    """The app's vision thread holds the camera and a second open fails on Windows, so doctor only reports its state."""
+    return lambda _config: None if app.vision.ok else "kamera niedostępna w działającej aplikacji"
+
+
 async def _run_doctor(app) -> list:
     return await asyncio.to_thread(
-        lambda: asyncio.run(run_doctor(app.config, interactive=False, driver=_RunningRobot(app.robot)))
+        lambda: asyncio.run(
+            run_doctor(app.config, interactive=False, driver=_RunningRobot(app.robot), camera=_running_camera(app))
+        )
     )
 
 

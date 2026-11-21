@@ -13,6 +13,11 @@ from .robot import HEADNOD, OhbotDriver
 
 SKIPPED = "pominięto"
 NO_KEY = "brak klucza API"
+CAMERA_HINT = (
+    "Podłącz kamerę, sprawdź numer kamery w Ustawieniach i nadaj dostęp do kamery "
+    "(macOS: Ustawienia systemowe > Prywatność i ochrona > Kamera, dla Terminala; "
+    "Windows: Ustawienia > Prywatność i zabezpieczenia > Kamera). Brak modelu oznacza niepełną instalację."
+)
 
 
 @dataclass
@@ -49,6 +54,24 @@ def _robot_motion(driver) -> None:
     driver.eye_colour(0, 0, 3)
 
 
+def _default_camera(config: Config) -> str | None:
+    """None when the model loads and the camera returns a frame, else what failed."""
+    import cv2
+
+    from .vision import load_detector
+
+    try:
+        load_detector()
+    except cv2.error as e:
+        return f"model YuNet nie wczytany ({e})"
+    cap = cv2.VideoCapture(config.camera.index)
+    try:
+        ok = cap.isOpened() and cap.read()[0]
+    finally:
+        cap.release()
+    return None if ok else f"kamera {config.camera.index} nie zwraca obrazu"
+
+
 async def run_doctor(
     config: Config,
     interactive: bool = False,
@@ -56,6 +79,7 @@ async def run_doctor(
     driver=None,
     speaker=None,
     mic: Callable[[bool], tuple[list[str], float | None]] = _default_mic,
+    camera: Callable[[Config], str | None] = _default_camera,
 ) -> list[CheckResult]:
     if client is None and config.api_key:
         import openai
@@ -168,6 +192,15 @@ async def run_doctor(
             if driver is None:
                 await asyncio.to_thread(d.close)
 
+    async def camera_check() -> CheckResult:
+        name = "Kamera"
+        if not config.camera.enabled:
+            return CheckResult(name, None, f"{SKIPPED} (wyłączona w Ustawieniach)")
+        problem = await asyncio.to_thread(camera, config)
+        if problem:
+            return CheckResult(name, False, problem, CAMERA_HINT)
+        return CheckResult(name, True, f"kamera {config.camera.index} działa, model wczytany")
+
     async def guarded(name: str, fn: Callable[[], Awaitable[CheckResult] | CheckResult]) -> CheckResult:
         try:
             r = fn()
@@ -191,5 +224,6 @@ async def run_doctor(
         await guarded("Mikrofon", mic_check),
         await guarded("Głośnik", speaker_check),
         await guarded("Ohbot", robot_check),
+        await guarded("Kamera", camera_check),
     ]
     return results
