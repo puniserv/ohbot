@@ -135,10 +135,12 @@ def _window(port: int) -> int:
         return asyncio.run(_web(port, lambda url, server: webbrowser.open(url)))
 
     # pywebview must own the main thread, so the server runs in a second one
-    ready, box = threading.Event(), {}
+    # uvicorn installs no signal handlers off the main thread, so Ctrl+C reaches the server only through `stop`
+    ready, stop, box = threading.Event(), threading.Event(), {}
 
     def on_ready(url, server) -> None:
         box.update(url=url, server=server)
+        server.should_exit = stop.is_set()
         ready.set()
 
     worker = threading.Thread(target=lambda: box.update(code=asyncio.run(_web(port, on_ready))))
@@ -147,9 +149,16 @@ def _window(port: int) -> int:
         while not ready.wait(0.1):
             if not worker.is_alive():
                 return box.get("code", 1)
-        webview.create_window("Ohbot", box["url"])
-        webview.start()
+        try:
+            webview.create_window("Ohbot", box["url"])
+            webview.start()
+        except Exception:
+            log.exception("Nie mogę otworzyć okna (brak WebView2?), otwieram przeglądarkę")
+            webbrowser.open(box["url"])
+            while worker.is_alive():
+                worker.join(0.5)  # a timeout keeps Ctrl+C deliverable on Windows
     finally:
+        stop.set()
         if "server" in box:
             box["server"].should_exit = True
         worker.join()

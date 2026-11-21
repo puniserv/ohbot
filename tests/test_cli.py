@@ -129,3 +129,69 @@ def test_frozen_build_works_in_the_exe_folder_so_ohbotdata_lands_there(monkeypat
     with pytest.raises(SystemExit):
         main(["--help"])
     assert os.getcwd() == str(tmp_path.resolve())
+
+
+def _install_webview(monkeypatch, start):
+    import sys
+    from types import SimpleNamespace
+
+    monkeypatch.setitem(sys.modules, "webview", SimpleNamespace(create_window=lambda title, url: None, start=start))
+
+
+def test_window_ctrl_c_before_the_server_is_ready_still_stops_it(monkeypatch):
+    # regression: should_exit was only set once ready, so the worker never ended and join() hung
+    import _thread
+    import time
+    from types import SimpleNamespace
+
+    import ohbotchat.__main__ as cli
+
+    calls = []
+
+    async def web(port, on_ready):
+        _thread.interrupt_main()
+        await asyncio.sleep(0.3)
+        server = SimpleNamespace(should_exit=False)
+        on_ready("http://127.0.0.1:1/", server)
+        deadline = time.monotonic() + 3
+        while not server.should_exit and time.monotonic() < deadline:
+            await asyncio.sleep(0.01)
+        calls.append("stopped" if server.should_exit else "hung")
+        return 0
+
+    _install_webview(monkeypatch, start=lambda: calls.append("window"))
+    monkeypatch.setattr(cli, "_web", web)
+
+    assert main(["--window"]) == 0
+    assert calls == ["stopped"]
+
+
+def test_window_that_fails_to_open_falls_back_to_the_browser(monkeypatch, caplog):
+    from types import SimpleNamespace
+
+    import ohbotchat.__main__ as cli
+
+    calls, box = [], {}
+
+    async def web(port, on_ready):
+        box["server"] = SimpleNamespace(should_exit=False)
+        on_ready("http://127.0.0.1:1/", box["server"])
+        while not box["server"].should_exit:
+            await asyncio.sleep(0.01)
+        calls.append("stopped")
+        return 0
+
+    def no_webview2():
+        raise RuntimeError("WebView2 missing")
+
+    def browser(url):
+        calls.append(url)
+        box["server"].should_exit = True  # stands in for the user pressing Ctrl+C later
+
+    _install_webview(monkeypatch, start=no_webview2)
+    monkeypatch.setattr(cli, "_web", web)
+    monkeypatch.setattr(cli.webbrowser, "open", browser)
+
+    assert main(["--window"]) == 0
+    assert calls == ["http://127.0.0.1:1/", "stopped"]
+    assert "WebView2" in caplog.text

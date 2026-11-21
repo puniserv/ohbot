@@ -56,4 +56,6 @@ Here `.env` goes in the repo root.
 - Run `ohbot-chat.exe doctor` in a terminal. It lists the input devices and, when run interactively, shows the level while you speak.
 - If another app holds the mic in exclusive mode (Teams, Zoom), close it or turn off "Allow applications to take exclusive control" in the device's advanced properties.
 
+**`--window` opens the browser instead**: the window could not start, usually because Edge WebView2 is missing (the log says "brak WebView2?"). Install the WebView2 Runtime from Microsoft, or just use the browser.
+
 **Port 8765 in use**: start with `--port 8766`.
