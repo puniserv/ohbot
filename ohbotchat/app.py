@@ -83,8 +83,10 @@ class App:
                 setattr(getattr(self.config, section), key, value)
         self.mic.segmenter.set_silence_ms(self.config.vad.silence_ms)
         if self.config.openai.tts_voice != voice:
+            if self._ensure_task:  # it would finish the old voice's phrases, or write new ones into the old folder
+                self._ensure_task.cancel()
             self.fallback.dir = self._fallback_dir()
-            self._ensure_fallback()
+            self._ensure_task = asyncio.create_task(self._ensure_phrases())
 
     def ready(self) -> bool:
         """Manual test commands (motors, test sentence) run only while the robot does nothing else.
@@ -222,6 +224,7 @@ class App:
         return self._task
 
     def new_conversation(self) -> None:
+        self.ptt_abort()  # a greeting must not play over a held button whose recording would then be dropped
         if self._busy():  # the old exchange would land in the fresh history once its reply arrives
             self.stop()
         self.history.clear()
@@ -339,6 +342,8 @@ class App:
 
         self._act("heard")
         pending = asyncio.create_task(self.engine.respond(heard, self.history, show))
+        # a reply that fails while a stopped filler plays is never awaited; retrieve it so asyncio does not log it
+        pending.add_done_callback(lambda t: t.cancelled() or t.exception())
         try:
             if self.config.conversation.fillers:
                 done, _ = await asyncio.wait({pending}, timeout=FILLER_DELAY_S)

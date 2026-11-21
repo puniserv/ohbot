@@ -1010,3 +1010,60 @@ async def test_manual_gesture_runs_and_pauses_idle():
     app.robot.flush()
     assert ("move", HEADNOD, 7, app.config.robot.gesture_speed) in driver.calls
     assert app.robot._idle_after > 0
+
+
+async def test_new_conversation_while_the_button_is_held_drops_the_recording_before_greeting():
+    app, _ = make()
+    app.ptt_start()
+    app.new_conversation()
+    assert not app.listener.recording and app.state == "idle"
+    await app.greet()
+    assert app.ptt_stop() is None and app.state == "idle"  # releasing the button later starts nothing
+
+
+async def test_reply_error_during_a_stopped_filler_is_retrieved(monkeypatch):
+    monkeypatch.setattr("ohbotchat.app.FILLER_DELAY_S", 0.01)
+    made = []
+    create = asyncio.create_task
+    monkeypatch.setattr(asyncio, "create_task", lambda coro, **kw: made.append(create(coro, **kw)) or made[-1])
+
+    class Failing(FakeEngine):
+        async def respond(self, heard, history, on_safe=None):
+            await asyncio.sleep(0.02)
+            raise EngineError("network")
+
+    speaker = FakeSpeaker(block=True)
+    app, _ = make(Failing(), speaker)
+    with_filler(app)
+    task = app.start_turn(LONG_ENOUGH)
+    await speaker.started.wait()
+    await asyncio.sleep(0.05)  # the reply fails while the filler still plays
+    app.stop()
+    await asyncio.gather(task, return_exceptions=True)
+    pending = next(t for t in made if "respond" in t.get_coro().__qualname__)
+    # _log_traceback is what makes asyncio log "Task exception was never retrieved" once the task is collected
+    assert pending.done() and not pending._log_traceback
+
+
+async def test_voice_change_restarts_phrase_generation_for_the_new_voice():
+    class Slow(FakeFallback):
+        def __init__(self):
+            super().__init__(complete=False)
+            self.cancelled = 0
+
+        async def ensure(self, engine):
+            self.ensured += 1
+            try:
+                await asyncio.sleep(60)
+            except asyncio.CancelledError:
+                self.cancelled += 1
+                raise
+
+    fb = Slow()
+    app, _ = make(fallback=fb)
+    app._ensure_fallback()
+    await asyncio.sleep(0)
+    app.apply_settings({"openai": {"tts_voice": "ash"}})
+    await asyncio.sleep(0)
+    assert fb.cancelled == 1 and fb.ensured == 2
+    app._ensure_task.cancel()
