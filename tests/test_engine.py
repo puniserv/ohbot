@@ -217,3 +217,15 @@ async def test_json_reply_without_text_is_an_error(content):
 async def test_unknown_gesture_becomes_none():
     reply = await make(FakeClient(text='{"text": "Hej", "gesture": "dance"}'))[0].respond("x", [])
     assert (reply.text, reply.gesture) == ("Hej", "none")
+
+
+@pytest.mark.parametrize("persona", sorted(p.stem for p in (load_config(env={}).root / "personas").glob("*.md")))
+async def test_every_persona_starts_with_the_child_safety_preamble(persona):
+    from ohbotchat.engine_chain import SAFETY
+
+    client = FakeClient()
+    eng, _ = make(client)
+    eng._cfg.conversation.persona = persona
+    await eng.respond("x", [])
+    system = dict(client.calls)["chat"]["messages"][0]["content"]
+    assert system.startswith(SAFETY) and "przemoc" in SAFETY and len(system) > len(SAFETY)
