@@ -315,3 +315,38 @@ async def test_ptt_start_without_mic_publishes_error_and_stays_idle():
     events = drain(q)
     assert [e.data["kind"] for e in events if e.type == "error"] == ["other"]
     assert app.state == "idle"
+
+
+async def test_ptt_abort_discards_audio_without_a_turn():
+    app, _ = make()
+    app.ptt_start()
+    app.ptt_abort()
+    assert not app.listener.recording and app.state == "idle" and app._task is None
+
+
+async def test_recording_is_stopped_and_processed_after_max_record_s():
+    app, _ = make()
+    app.config.conversation.max_record_s = 0.05
+    app.ptt_start()
+    await asyncio.sleep(0.15)
+    assert not app.listener.recording
+    await app._task
+    assert app.state == "idle" and app.history
+
+
+async def test_manual_stop_cancels_the_recording_timer():
+    app, _ = make()
+    app.config.conversation.max_record_s = 0.05
+    app.ptt_start()
+    await app.ptt_stop()
+    await asyncio.sleep(0.15)
+    assert len(app.history) == 2  # one turn only
+
+
+async def test_set_mode_stores_mode_and_close_is_idempotent():
+    app, driver = make()
+    app.set_mode("wake")
+    assert app.config.conversation.mode == "wake"
+    await app.close()
+    await app.close()
+    assert driver.closed

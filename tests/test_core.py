@@ -80,3 +80,14 @@ async def test_bus_bound_loop_is_safe_before_first_subscribe():
 def test_cancel_goes_idle_from_busy_states():
     for st in (State.TRANSCRIBING, State.THINKING, State.SPEAKING, State.LISTENING, State.ERROR):
         assert transition(st, "cancel") == State.IDLE
+
+
+async def test_bus_full_queue_drops_oldest_instead_of_growing():
+    from ohbotchat.events import QUEUE_SIZE
+
+    bus = EventBus()
+    q = bus.subscribe()
+    for i in range(QUEUE_SIZE + 5):
+        bus.publish("level", n=i)
+    assert q.qsize() == QUEUE_SIZE
+    assert q.get_nowait().data["n"] == 5 and q._queue[-1].data["n"] == QUEUE_SIZE + 4

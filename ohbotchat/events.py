@@ -1,6 +1,8 @@
 import asyncio
 from dataclasses import dataclass, field
 
+QUEUE_SIZE = 200  # a stalled websocket client must not make the queue grow without bound
+
 
 @dataclass
 class Event:
@@ -25,7 +27,7 @@ class EventBus:
         # the first subscriber pins the loop that publish() from other threads targets
         if self._loop is None:
             self._loop = asyncio.get_running_loop()
-        q: asyncio.Queue[Event] = asyncio.Queue()
+        q: asyncio.Queue[Event] = asyncio.Queue(QUEUE_SIZE)
         self._subs.append(q)
         return q
 
@@ -42,4 +44,6 @@ class EventBus:
 
     def _deliver(self, event: Event) -> None:
         for q in self._subs:
+            if q.full():
+                q.get_nowait()
             q.put_nowait(event)

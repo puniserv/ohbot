@@ -2,11 +2,11 @@ import asyncio
 import json
 import logging
 from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import asdict
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .doctor import run_doctor
@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"  # the UI has no auth, so it must never listen on a network interface
 DEFAULT_PORT = 8765
+ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost"})
 MODES = ("ptt", "wake", "continuous")
 
 
@@ -38,11 +39,24 @@ def server_config(web_app: FastAPI, port: int = DEFAULT_PORT) -> uvicorn.Config:
     return uvicorn.Config(web_app, host=HOST, port=port, log_level="warning")
 
 
-def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor) -> FastAPI:
-    """`app` is the ohbotchat App (or a fake with the same surface)."""
+def _same_origin(ws: WebSocket, allowed_hosts) -> bool:
+    """Any web page can open ws://127.0.0.1, so Origin must match; the Host check also stops DNS rebinding."""
+    host = ws.headers.get("host", "")
+    return host.partition(":")[0] in allowed_hosts and ws.headers.get("origin") == f"http://{host}"
+
+
+def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowed_hosts=ALLOWED_HOSTS) -> FastAPI:
+    """`app` is the ohbotchat App (or a fake with the same surface); its close() runs on server shutdown."""
     cfg = app.config
     web_dir = cfg.root / "web"
-    api = FastAPI()
+
+    @asynccontextmanager
+    async def lifespan(_):
+        yield
+        # uvicorn re-raises SIGINT after serve(), which cancels the caller's own cleanup at its first await
+        await app.close()
+
+    api = FastAPI(lifespan=lifespan)
     tasks: set[asyncio.Task] = set()
 
     def personas() -> list[str]:
@@ -84,7 +98,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor) -> Fas
         elif cmd == "new":
             app.new_conversation()
         elif cmd == "mode" and msg.get("value") in MODES:
-            cfg.conversation.mode = msg["value"]
+            app.set_mode(msg["value"])
             app.bus.publish("settings", **settings())
         elif cmd == "persona" and msg.get("value") in personas():
             cfg.conversation.persona = msg["value"]
@@ -97,6 +111,8 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor) -> Fas
             cfg.barge_in.enabled, cfg.barge_in.threshold = enabled, float(threshold)
             app.bus.publish("settings", **settings())
         elif cmd == "doctor":
+            if tasks:
+                return
             task = asyncio.create_task(run_doctor_task())
             tasks.add(task)
             task.add_done_callback(tasks.discard)
@@ -106,10 +122,17 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor) -> Fas
     async def pump(ws: WebSocket, q: asyncio.Queue) -> None:
         while True:
             e = await q.get()
-            await ws.send_json({"type": e.type, "data": e.data})
+            try:
+                await ws.send_json({"type": e.type, "data": e.data})
+            except Exception:
+                log.warning("websocket send failed, dropping the stream")
+                return
 
     @api.websocket("/ws")
     async def ws_endpoint(ws: WebSocket) -> None:
+        if not _same_origin(ws, allowed_hosts):
+            await ws.close(code=1008)
+            return
         await ws.accept()
         q = app.bus.subscribe()
         sender = None
@@ -123,18 +146,18 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor) -> Fas
                     if not isinstance(msg, dict):
                         raise ValueError("not an object")
                     command(msg)
-                except Exception as e:
+                except ValueError as e:  # includes JSONDecodeError
                     log.warning("ignored websocket command %.100r: %s", text, e)
+                except Exception:
+                    log.exception("websocket command %.100r failed", text)
         except WebSocketDisconnect:
             pass
         finally:
             if sender:
                 sender.cancel()
             app.bus.unsubscribe(q)
+            if app.listener.recording:
+                app.ptt_abort()
 
-    @api.get("/")
-    async def index() -> FileResponse:
-        return FileResponse(web_dir / "index.html")
-
-    api.mount("/", StaticFiles(directory=web_dir), name="static")
+    api.mount("/", StaticFiles(directory=web_dir, html=True), name="static")
     return api

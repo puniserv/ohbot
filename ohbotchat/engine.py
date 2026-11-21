@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-ErrorKind = Literal["network", "quota", "auth", "moderated", "empty", "other"]
+ErrorKind = Literal["network", "quota", "auth", "moderated", "empty", "nokey", "other"]
 
 
 class EngineError(Exception):

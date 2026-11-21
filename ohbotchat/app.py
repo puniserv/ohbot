@@ -34,6 +34,8 @@ class App:
         self._abort_action: str | None = None
         self._ensure_task: asyncio.Task | None = None
         self._background: list[asyncio.Task] = []
+        self._rec_timer: asyncio.TimerHandle | None = None
+        self._closed = False
 
     def _default_engine(self):
         import openai
@@ -51,6 +53,10 @@ class App:
         self._ensure_fallback()
 
     async def close(self) -> None:
+        if self._closed:  # called from uvicorn shutdown and again from the caller's finally
+            return
+        self._closed = True
+        self._cancel_rec_timer()
         tasks = [*self._background, *filter(None, [self._task, self._ensure_task])]
         for t in tasks:
             t.cancel()
@@ -90,9 +96,27 @@ class App:
             log.exception("microphone unavailable")
             self.bus.publish("error", kind="other", message=f"Nie mogę włączyć mikrofonu: {e}")
             self._act("cancel")
+            return
+        self._rec_timer = asyncio.get_running_loop().call_later(self.config.conversation.max_record_s, self.ptt_stop)
+
+    def _cancel_rec_timer(self) -> None:
+        if self._rec_timer:
+            self._rec_timer.cancel()
+            self._rec_timer = None
+
+    def set_mode(self, mode: str) -> None:
+        self.config.conversation.mode = mode
+
+    def ptt_abort(self) -> None:
+        """Drops a recording without a turn (client vanished while the button was held)."""
+        self._cancel_rec_timer()
+        if self.listener.recording:
+            self.listener.stop_ptt()
+            self._act("cancel")
 
     def ptt_stop(self) -> asyncio.Task | None:
         """Ends the recording and starts the turn in its own task; None if nothing was recording."""
+        self._cancel_rec_timer()
         if not self.listener.recording:
             return None
         return self.start_turn(self.listener.stop_ptt())
@@ -113,6 +137,7 @@ class App:
         if self._busy():
             self._task.cancel()
         elif self.state == State.LISTENING:
+            self._cancel_rec_timer()
             self.listener.stop_ptt()
             self._act(self._abort_action)
 

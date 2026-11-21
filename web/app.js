@@ -4,6 +4,9 @@ const MARK = { true: "✔", false: "✘", null: "–" };
 const STATE_PL = { idle: "Czeka", listening: "Słucha", transcribing: "Rozpoznaje", thinking: "Myśli", speaking: "Mówi", error: "Błąd" };
 const ERRORS = {
   quota: "Brak środków na koncie OpenAI – doładuj konto",
+  empty: "Nie usłyszałem – przytrzymaj przycisk dłużej",
+  moderated: "Porozmawiajmy o czymś innym",
+  nokey: "Brak klucza API – dodaj OPENAI_API_KEY do pliku .env",
   auth: "Klucz API odrzucony – sprawdź plik .env",
   network: "Brak internetu – robot nie może się połączyć",
 };
@@ -98,7 +101,7 @@ const handlers = {
   stage: (d) => setActive(d.status === "start" ? [d.name] : []),
   heard: (d) => bubble("child", "Ty:", d.text),
   reply: (d) => bubble("robot", "Ohbot:", d.text),
-  error: (d) => toast(ERRORS[d.kind] || d.message || "Coś poszło nie tak"),
+  error: (d) => toast(ERRORS[d.kind] || (d.kind === "other" && d.message) || "Coś poszło nie tak"),
   robot: (d) => setRobot(d.connected),
   level: (d) => ($("meter-bar").style.width = Math.min(100, d.level * 100) + "%"),
   settings: applySettings,
@@ -140,9 +143,8 @@ talk.addEventListener("pointerdown", (e) => {
 ["pointerup", "pointercancel", "lostpointercapture"].forEach((ev) => talk.addEventListener(ev, talkStop));
 talk.addEventListener("contextmenu", (e) => e.preventDefault());
 
-const typing = (e) => ["SELECT", "INPUT"].includes(e.target.tagName);
 document.addEventListener("keydown", (e) => {
-  if (e.code === "Space" && !typing(e)) {
+  if (e.code === "Space") {
     e.preventDefault();
     if (!e.repeat) talkStart();
   } else if (e.key === "Escape") {
@@ -150,11 +152,15 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("keyup", (e) => {
-  if (e.code === "Space" && !typing(e)) {
+  if (e.code === "Space") {
     e.preventDefault();
     talkStop();
   }
 });
+
+window.addEventListener("blur", talkStop);
+document.addEventListener("change", (e) => e.target.blur()); // a focused control would swallow Space
+document.addEventListener("click", (e) => e.target.tagName === "BUTTON" && e.target.blur());
 
 $("stop").onclick = () => send({ cmd: "stop" });
 $("new").onclick = () => {

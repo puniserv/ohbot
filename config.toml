@@ -21,6 +21,7 @@ reasoning_effort = "none"
 persona = "dzieci"
 history_turns = 10
 mode = "ptt"
+max_record_s = 30
 
 [wake]
 words = ["ohbot", "hej ohbot", "ochbot", "obot", "ołbot"]

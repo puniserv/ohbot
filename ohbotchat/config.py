@@ -23,6 +23,7 @@ class ConversationConfig:
     persona: str = "dzieci"
     history_turns: int = 10
     mode: str = "ptt"
+    max_record_s: float = 30  # a stuck button or dropped page must not record forever
 
 
 @dataclass

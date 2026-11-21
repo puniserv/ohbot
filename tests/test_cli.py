@@ -11,7 +11,7 @@ def test_format_result():
     assert format_result(CheckResult("C", None, "pominięto")).startswith("- C")
 
 
-async def test_no_key_engine_reports_auth_error_instead_of_crashing():
+async def test_no_key_engine_reports_nokey_error_instead_of_crashing():
     import pytest
 
     from ohbotchat.__main__ import NoKeyEngine
@@ -20,7 +20,7 @@ async def test_no_key_engine_reports_auth_error_instead_of_crashing():
     for call in (NoKeyEngine().transcribe(b""), NoKeyEngine().respond("", []), NoKeyEngine().synthesize("x", publish=False)):
         with pytest.raises(EngineError) as e:
             await call
-        assert e.value.kind == "auth"
+        assert e.value.kind == "nokey"
 
 
 class FakeApp:

@@ -90,7 +90,7 @@ class NoKeyEngine:
     """Lets the web UI start without a key; every turn then reports the problem on screen."""
 
     async def _fail(self, *args, **kwargs):
-        raise EngineError("auth", "Brak OPENAI_API_KEY. Uzupełnij plik .env.")
+        raise EngineError("nokey", "Brak klucza API – dodaj OPENAI_API_KEY do pliku .env")
 
     transcribe = respond = synthesize = _fail
 
