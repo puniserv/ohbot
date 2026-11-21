@@ -144,26 +144,30 @@ class App:
         async with self._sleep_lock:  # a double click must not interleave a sleep with a wake
             if asleep == self.asleep:
                 return
-            if asleep:
-                self.asleep = True
-                self.mic.stop()
-                self.ptt_abort()
-                self.stop()
-                self._abort_action = "cancel"  # the turn must not end in LISTENING with the mic off
-                await asyncio.gather(*filter(None, [self._task, self._gesture]), return_exceptions=True)
-                if self.state == State.LISTENING:
-                    self._act("cancel")
-                await asyncio.to_thread(self.vision.stop)
-                await asyncio.to_thread(self.robot.sleep)
-            else:
-                await asyncio.to_thread(self.robot.start)
-                if self._closed:
-                    return
-                self.vision.start()
-                self.asleep = False  # only now, or the tick loop would retry the connect start() is doing
-                if self.config.conversation.mode != "ptt":
-                    self._start_mic()
-            self.bus.publish("sleep", asleep=self.asleep)
+            try:
+                if asleep:
+                    self.asleep = True
+                    self.mic.stop()
+                    self.ptt_abort()
+                    self.stop()
+                    self._abort_action = "cancel"  # the turn must not end in LISTENING with the mic off
+                    await asyncio.gather(*filter(None, [self._task, self._gesture]), return_exceptions=True)
+                    if self.state == State.LISTENING:
+                        self._act("cancel")
+                    await asyncio.to_thread(self.vision.stop)
+                    await asyncio.to_thread(self.robot.sleep)
+                else:
+                    await asyncio.to_thread(self.robot.start)
+                    if self._closed:
+                        return
+                    self.vision.start()
+                    self.asleep = False  # only now, or the tick loop would retry the connect start() is doing
+                    if self.config.conversation.mode != "ptt":
+                        self._start_mic()
+            except Exception:
+                log.exception("sleep/wake failed")  # runs as a fire-and-forget task, nobody else would log it
+            finally:
+                self.bus.publish("sleep", asleep=self.asleep)  # else the UI button stays on "Usypiam…"/"Budzę…"
 
     @property
     def closed(self) -> bool:

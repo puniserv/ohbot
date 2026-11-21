@@ -1313,3 +1313,20 @@ async def test_close_during_the_wake_connect_keeps_camera_and_mic_off(monkeypatc
     gate.set()
     await task
     assert not app.vision.running and not app.mic.running
+
+
+async def test_a_failed_wake_still_tells_the_ui_and_logs_why(monkeypatch, caplog):
+    from ohbotchat import robot as robot_mod
+
+    monkeypatch.setattr(robot_mod, "SETTLE_S", 0)
+    app, _ = make(cfg=Config())
+    await app.set_asleep(True)
+    q = app.bus.subscribe()
+
+    def broken():
+        raise OSError("port busy")
+
+    app.robot.start = broken
+    await app.set_asleep(False)  # a fire-and-forget task in web.py: nobody else would see the error
+    assert [e.data for e in drain(q) if e.type == "sleep"] == [{"asleep": True}]  # else the button stays on "Budzę…"
+    assert "port busy" in caplog.text
