@@ -107,6 +107,7 @@ class Vision:
 
     def start(self) -> None:
         # a fresh Event, because a thread stop() gave up on (stuck in cap.read) must not be revived by wake
+        self._halt.set()  # a start without stop must not leave a thread nothing can stop
         self._halt = threading.Event()
         self._thread = threading.Thread(target=self._run, args=(self._halt,), name="vision", daemon=True)
         self._thread.start()

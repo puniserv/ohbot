@@ -294,3 +294,13 @@ def test_a_new_camera_index_that_also_fails_toasts_again():
     r.cfg.camera.index = 1
     r.vision.step(1)
     assert len(r.cams) == 2 and [t for t, _ in r.bus.events].count("error") == 2
+
+
+def test_a_second_start_without_stop_halts_the_first_thread():
+    r = rig()
+    r.vision.start()
+    first = r.vision._thread
+    r.vision.start()
+    first.join(2)
+    assert not first.is_alive()
+    r.vision.stop()
