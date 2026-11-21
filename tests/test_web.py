@@ -4,7 +4,7 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from ohbotchat.config import load_config
+from ohbotchat.config import Config
 from ohbotchat.doctor import CheckResult
 from ohbotchat.engine import EngineError
 from ohbotchat.events import EventBus
@@ -29,7 +29,7 @@ class FakeRobot:
 
 class FakeApp:
     def __init__(self):
-        self.config = load_config(env={"OPENAI_API_KEY": "sk-test"})
+        self.config = Config(api_key="sk-test")
         self.bus = EventBus()
         self.state = "idle"
         self.robot = FakeRobot()

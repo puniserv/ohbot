@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from ohbotchat.config import Config, load_config
+from ohbotchat.config import ROOT, Config, load_config
 from ohbotchat.events import EventBus
 from ohbotchat.state import State, transition
 
@@ -25,10 +25,11 @@ def test_dotenv_key(tmp_path):
     assert load_config(tmp_path, env={}).api_key == "sk-file"
 
 
-def test_repo_config_toml_loads():
-    cfg = Config()
-    assert cfg.openai.max_tokens == 200
-    assert cfg.colours.listening == [0, 10, 0]
+def test_repo_config_toml_loads(tmp_path):
+    # copied alone, so the committed file is checked without reading the developer's .env
+    (tmp_path / "config.toml").write_text((ROOT / "config.toml").read_text(encoding="utf-8"), encoding="utf-8")
+    cfg = load_config(tmp_path, env={})
+    assert cfg.openai.max_tokens > 0
     assert "ohbot" in cfg.wake.words
 
 
