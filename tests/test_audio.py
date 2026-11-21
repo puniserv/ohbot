@@ -35,7 +35,8 @@ def test_envelope_length_and_range():
 def test_lip_positions():
     assert lip_positions([0.0]) == [(5, 5)]
     (top, bottom), = lip_positions([1.0])
-    assert top != 5 and bottom != 5
+    # regression: the ohbot lib opens both lips upward from 5 (5 + val/2); the top lip pushed below 5 jammed
+    assert top > 5 and bottom > 5
     assert all(0 <= p <= 10 for p in (top, bottom))
 
 

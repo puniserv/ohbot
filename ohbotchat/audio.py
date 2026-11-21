@@ -30,9 +30,9 @@ def envelope(pcm: bytes, rate: int, frame_ms: int = 40) -> list[float]:
 
 
 def lip_positions(env: list[float]) -> list[tuple[float, float]]:
-    """(top, bottom) lip motor positions per frame; top goes up, bottom goes down as the mouth opens."""
+    """(top, bottom) lip motor positions per frame; like the ohbot lib, both rise from 5 as the mouth opens."""
     res = []
     for v in env:
-        o = min(1.0, v * LIP_GAIN)
-        res.append((LIP_CLOSED - LIP_SPAN * o, LIP_CLOSED + LIP_SPAN * o))
+        p = LIP_CLOSED + LIP_SPAN * min(1.0, v * LIP_GAIN)
+        res.append((p, p))
     return res
