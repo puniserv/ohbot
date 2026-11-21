@@ -676,3 +676,14 @@ async def test_transcript_shown_only_after_input_moderation_passed(stage, shown)
     q = app.bus.subscribe()
     await app.handle_utterance(LONG_ENOUGH)
     assert [e.data["text"] for e in drain(q) if e.type == "heard"] == [shown]
+
+
+async def test_switch_to_ptt_mid_turn_ends_idle_with_mic_off():
+    speaker = FakeSpeaker(block=True)
+    app, mic = hands_free("continuous", Recorder("raz"), speaker)
+    await mic.say()
+    await speaker.started.wait()
+    app.set_mode("ptt")
+    speaker.stop()
+    await settle(app)
+    assert app.state == "idle" and not app.mic.running
