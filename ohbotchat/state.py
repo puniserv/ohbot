@@ -16,6 +16,7 @@ _TABLE: dict[tuple[State, str], State] = {
     (State.LISTENING, "stop"): State.IDLE,
     (State.TRANSCRIBING, "heard"): State.THINKING,
     (State.TRANSCRIBING, "stop"): State.LISTENING,
+    (State.TRANSCRIBING, "ignore"): State.LISTENING,  # hands-free: not meant for the robot
     (State.THINKING, "reply"): State.SPEAKING,
     (State.THINKING, "stop"): State.LISTENING,
     (State.SPEAKING, "done"): State.IDLE,

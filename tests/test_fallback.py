@@ -23,7 +23,7 @@ async def test_ensure_generates_missing_only(tmp_path):
     assert not fb.complete()
     await fb.ensure(tts)
     assert fb.complete() and set(tts.publish_flags) == {False}
-    assert set(PHRASES) == {"no_network", "not_heard", "moderated", "error"}
+    assert set(PHRASES) == {"no_network", "not_heard", "moderated", "error", "listening"}
     assert fb.get("not_heard") == PHRASES["not_heard"].encode()
     tts.said.clear()
     await fb.ensure(tts)

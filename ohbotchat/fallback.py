@@ -7,6 +7,7 @@ PHRASES = {
     "not_heard": "Nie usłyszałem, powtórz proszę.",
     "moderated": "Porozmawiajmy o czymś innym.",
     "error": "Coś mi się pomyliło, spróbuj jeszcze raz.",
+    "listening": "Słucham?",
 }
 
 

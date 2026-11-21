@@ -5,8 +5,9 @@ from .audio import LIP_CLOSED, envelope, lip_positions
 from .config import Config
 from .engine import EngineError
 from .events import EventBus
-from .fallback import Fallback
-from .listen import Listener
+from .fallback import PHRASES, Fallback
+from .listen import Listener, wake_match
+from .loop import MicLoop
 from .robot import OhbotDriver, Robot
 from .speak import FRAME_MS, Speaker
 from .state import State, transition
@@ -14,13 +15,16 @@ from .state import State, transition
 log = logging.getLogger(__name__)
 
 MIN_PCM_BYTES = 16000 * 2 * 3 // 10  # under 0.3 s is a click, not speech
+WAKE_WINDOW_S = 8  # after a bare "Ohbot!" the next utterance needs no wake word
 _FALLBACK_KEY = {"network": "no_network", "moderated": "moderated", "empty": "not_heard"}
 
 
 class App:
     """Wires bus, engine, speaker, robot and listener and runs one conversation turn at a time."""
 
-    def __init__(self, config: Config, engine=None, speaker=None, robot=None, fallback=None, listener=None) -> None:
+    def __init__(
+        self, config: Config, engine=None, speaker=None, robot=None, fallback=None, listener=None, mic_stream=None
+    ) -> None:
         self.config = config
         self.bus = EventBus()
         self.engine = engine or self._default_engine()
@@ -28,6 +32,8 @@ class App:
         self.robot = robot or Robot(OhbotDriver(), config, self.bus)
         self.fallback = fallback or Fallback(config.root / "cache" / "fallback")
         self.listener = listener or Listener(config, self.bus)
+        loop_args = (config, self.bus, lambda: self.state, self.start_turn, self._barge_in)
+        self.mic = MicLoop(*loop_args, mic_stream) if mic_stream else MicLoop(*loop_args)
         self.state = State.IDLE
         self.history: list[dict] = []
         self._task: asyncio.Task | None = None
@@ -35,6 +41,7 @@ class App:
         self._ensure_task: asyncio.Task | None = None
         self._background: list[asyncio.Task] = []
         self._rec_timer: asyncio.TimerHandle | None = None
+        self._wake_until = 0.0
         self._closed = False
 
     def _default_engine(self):
@@ -51,6 +58,8 @@ class App:
         await asyncio.to_thread(self.robot.start)
         self._background = [asyncio.create_task(self.robot.idle_loop())]
         self._ensure_fallback()
+        if self.config.conversation.mode != "ptt":
+            self._start_mic()
 
     async def close(self) -> None:
         if self._closed:  # called from uvicorn shutdown and again from the caller's finally
@@ -62,6 +71,7 @@ class App:
             t.cancel()
         self.speaker.stop()
         self.listener.stop_ptt()
+        self.mic.stop()
         await asyncio.gather(*tasks, return_exceptions=True)
         await asyncio.to_thread(self.robot.close)
 
@@ -89,6 +99,8 @@ class App:
         """Pressing the button while the robot talks or thinks interrupts it, then starts listening."""
         if self.state in (State.TRANSCRIBING, State.THINKING, State.SPEAKING, State.ERROR):
             self.stop(relisten=True)
+        if self.mic.running:  # hands-free: the loop already listens, the button only interrupts
+            return
         self._act("listen")
         try:
             self.listener.start_ptt()
@@ -106,7 +118,31 @@ class App:
             self._rec_timer = None
 
     def set_mode(self, mode: str) -> None:
+        if mode == self.config.conversation.mode:
+            return
         self.config.conversation.mode = mode
+        self.ptt_abort()
+        if mode != "ptt":
+            self._start_mic()
+            return
+        self.mic.stop()
+        self._wake_until = 0.0
+        if self.state == State.LISTENING:
+            self._act("cancel")
+
+    def _start_mic(self) -> None:
+        try:
+            self.mic.start()
+        except Exception as e:
+            log.exception("microphone loop unavailable")
+            self.bus.publish("error", kind="other", message=f"Nie mogę włączyć mikrofonu, wracam do trybu z przyciskiem: {e}")
+            self.config.conversation.mode = "ptt"
+            return
+        if self.state == State.IDLE:
+            self._act("listen")
+
+    def _barge_in(self) -> None:
+        self.stop(relisten=True)
 
     def ptt_abort(self) -> None:
         """Drops a recording without a turn (client vanished while the button was held)."""
@@ -134,10 +170,11 @@ class App:
     def stop(self, relisten: bool = False) -> None:
         """Interrupts the turn. Ends in LISTENING if the mic is wanted next (barge-in, button), else IDLE."""
         self._abort_action = "stop" if relisten or self.config.conversation.mode != "ptt" else "cancel"
+        self._wake_until = 0.0
         self.speaker.stop()
         if self._busy():
             self._task.cancel()
-        elif self.state == State.LISTENING:
+        elif self.state == State.LISTENING and not self.mic.running:
             self._cancel_rec_timer()
             self.listener.stop_ptt()
             self._act(self._abort_action)
@@ -150,26 +187,66 @@ class App:
             if len(pcm) < MIN_PCM_BYTES:
                 raise EngineError("empty")
             heard = await self.engine.transcribe(pcm)
-            self.bus.publish("heard", text=heard)
-            self._act("heard")
-            reply = await self.engine.respond(heard, self.history)
-            self._remember(heard, reply.text)
-            self.bus.publish("reply", text=reply.text)
-            self._act("reply")
-            if await self._speak(reply.pcm):
-                self._act("done")
-            else:
-                self._act(self._abort_action or "cancel")
-            if not self.fallback.complete():
-                self._ensure_fallback()
+            if self.config.conversation.mode == "wake":
+                heard = await self._wake(heard)
+                if heard is None:
+                    return
+            await self._respond(heard)
         except EngineError as e:
-            await self._fail(e)
+            if e.kind == "empty" and self.mic.running:  # room noise must not make the robot say "nie usłyszałem"
+                self._ignore("nic nie rozpoznano")
+            else:
+                await self._fail(e)
         except asyncio.CancelledError:
             self._act(self._abort_action or "cancel")
             raise
         except Exception as e:
             log.exception("turn failed")
             await self._fail(EngineError("other", str(e)))
+        finally:
+            if self.mic.running and self.state == State.IDLE:
+                self._act("listen")
+
+    async def _wake(self, text: str) -> str | None:
+        """What to answer in wake mode, or None when the utterance was not for the robot."""
+        loop = asyncio.get_running_loop()
+        if loop.time() < self._wake_until:
+            self._wake_until = 0.0
+            return text
+        rest = wake_match(text, self.config.wake.words)
+        if rest is None:
+            self._ignore(text)
+            return None
+        if rest:
+            return rest
+        self.bus.publish("heard", text=text)
+        self.bus.publish("reply", text=PHRASES["listening"])
+        self._act("heard")
+        self._act("reply")
+        if pcm := self.fallback.get("listening"):
+            await self._speak(pcm)
+        self._act("done")
+        self._wake_until = loop.time() + WAKE_WINDOW_S
+        return None
+
+    def _ignore(self, text: str) -> None:
+        self.bus.publish("info", text=f"zignorowano: {text}")
+        self._act("ignore")
+
+    async def _respond(self, heard: str) -> None:
+        """The rest of a turn once the child's words are known as text."""
+        self.bus.publish("heard", text=heard)
+        self._act("heard")
+        reply = await self.engine.respond(heard, self.history)
+        self._remember(heard, reply.text)
+        self.bus.publish("reply", text=reply.text)
+        self._act("reply")
+        if await self._speak(reply.pcm):
+            self._act("done")
+        else:
+            self._act(self._abort_action or "cancel")
+        if not self.fallback.complete():
+            self._ensure_fallback()
 
     def _remember(self, heard: str, text: str) -> None:
         n = self.config.conversation.history_turns

@@ -5,6 +5,8 @@ import pytest
 from ohbotchat.app import App
 from ohbotchat.config import load_config
 from ohbotchat.engine import EngineError, Reply
+from ohbotchat.events import EventBus
+from ohbotchat.listen import Segmenter
 from ohbotchat.robot import BOTTOMLIP, TOPLIP, NullDriver, Robot
 
 SPEECH_PCM = b"\x00\x20" * 24000  # 1 s of loud-ish signal at 24 kHz
@@ -100,6 +102,7 @@ def make(engine=None, speaker=None, turns=None, mode=None, delay=None, fallback=
         speaker=speaker or FakeSpeaker(),
         fallback=fallback or FakeFallback(),
         listener=FakeListener(),
+        mic_stream=MicStreams(),
     )
     app.robot = Robot(driver, cfg, app.bus)
     app.robot.start()
@@ -363,3 +366,225 @@ async def test_repeated_ptt_start_does_not_leave_an_orphan_timer():
     await asyncio.sleep(0.07)  # past the first timer, before the new one
     assert app.listener.recording
     app.ptt_abort()
+
+
+# --- hands-free modes (continuous / wake) ---
+
+LOUD = b"\x00\x40" * 480
+QUIET = b"\x00\x00" * 480
+SAY = [LOUD] * 12 + [QUIET] * 3  # 360 ms of speech, then the segmenter's silence
+
+
+class MicStreams:
+    def __init__(self, fail=None):
+        self.streams, self.fail = [], fail
+
+    def __call__(self, cb):
+        test = self
+
+        class S:
+            def __init__(self):
+                self.cb, self.open = cb, False
+
+            def start(self):
+                if test.fail:
+                    raise test.fail
+                self.open = True
+
+            def stop(self):
+                self.open = False
+
+            def close(self):
+                self.open = False
+
+        self.streams.append(S())
+        return self.streams[-1]
+
+    async def say(self, frames=SAY):
+        for f in frames:
+            self.streams[-1].cb(f)
+        await asyncio.sleep(0)
+
+
+class Recorder(FakeEngine):
+    def __init__(self, *transcripts, **kw):
+        super().__init__(**kw)
+        self.transcripts, self.heard, self.transcribed = list(transcripts), [], 0
+
+    async def transcribe(self, pcm):
+        self.transcribed += 1
+        if self.transcripts:
+            self.transcript = self.transcripts.pop(0)
+        return await super().transcribe(pcm)
+
+    async def respond(self, heard, history):
+        self.heard.append(heard)
+        return await super().respond(heard, history)
+
+
+def hands_free(mode, engine=None, speaker=None, fail=None):
+    mic = MicStreams(fail)
+    cfg = load_config(env={})
+    cfg.vad.silence_ms, cfg.vad.min_speech_ms = 90, 60
+    app = App(cfg, engine=engine or Recorder(), speaker=speaker or FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), mic_stream=mic)
+    app.robot = Robot(NullDriver(), cfg, app.bus)
+    app.robot.start()
+    app.mic.segmenter = Segmenter(silence_ms=90, min_speech_ms=60, is_speech=lambda f: f == LOUD)
+    app.set_mode(mode)
+    return app, mic
+
+
+async def settle(app):
+    if app._task:
+        await asyncio.gather(app._task, return_exceptions=True)
+
+
+async def test_continuous_every_utterance_is_a_turn_and_mic_listens_again():
+    engine = Recorder("raz", "dwa")
+    app, mic = hands_free("continuous", engine)
+    assert app.state == "listening" and app.mic.running
+    for _ in range(2):
+        await mic.say()
+        await settle(app)
+    assert engine.heard == ["raz", "dwa"] and app.state == "listening"
+
+
+async def test_mic_is_muted_while_a_turn_runs():
+    speaker = FakeSpeaker(block=True)
+    engine = Recorder("raz", "dwa")
+    app, mic = hands_free("continuous", engine, speaker)
+    await mic.say()
+    await speaker.started.wait()
+    await mic.say()  # the robot's own voice or a child talking over it
+    speaker.stop()
+    await settle(app)
+    await mic.say(SAY[-3:])
+    assert engine.heard == ["raz"] and app.state == "listening" and not app._busy()
+
+
+async def test_wake_without_wake_word_is_ignored_with_info():
+    engine = Recorder("jak się masz")
+    app, mic = hands_free("wake", engine)
+    q = app.bus.subscribe()
+    await mic.say()
+    await settle(app)
+    events = drain(q)
+    assert engine.heard == [] and app.speaker.played == []
+    assert [e.data["text"] for e in events if e.type == "info"] == ["zignorowano: jak się masz"]
+    assert states(events) == ["transcribing", "listening"]
+
+
+async def test_wake_word_with_question_answers_the_rest_transcribing_once():
+    engine = Recorder("Ohbot, ile to jest dwa plus dwa?")
+    app, mic = hands_free("wake", engine)
+    await mic.say()
+    await settle(app)
+    assert engine.heard == ["ile to jest dwa plus dwa?"] and engine.transcribed == 1
+    assert app.state == "listening"
+
+
+async def test_bare_wake_word_says_listening_then_accepts_next_utterance(monkeypatch):
+    engine = Recorder("Ohbot!", "opowiedz dowcip", "a teraz zagadka")
+    app, mic = hands_free("wake", engine)
+    await mic.say()
+    await settle(app)
+    assert [p.rstrip(b"\0") for p in app.speaker.played] == [b"FB-listening"] and engine.heard == []
+    assert app.state == "listening"
+    await mic.say()
+    await settle(app)
+    assert engine.heard == ["opowiedz dowcip"]
+    await mic.say()
+    await settle(app)
+    assert engine.heard == ["opowiedz dowcip"]  # the window is used up
+
+
+async def test_wake_window_expires(monkeypatch):
+    monkeypatch.setattr("ohbotchat.app.WAKE_WINDOW_S", 0.01)
+    engine = Recorder("Ohbot", "opowiedz dowcip")
+    app, mic = hands_free("wake", engine)
+    await mic.say()
+    await settle(app)
+    await asyncio.sleep(0.02)
+    await mic.say()
+    await settle(app)
+    assert engine.heard == []
+
+
+async def test_hands_free_empty_transcript_is_ignored_silently():
+    app, mic = hands_free("continuous", Recorder(fail=EngineError("empty"), fail_stage="transcribe"))
+    q = app.bus.subscribe()
+    await mic.say()
+    await settle(app)
+    events = drain(q)
+    assert app.speaker.played == [] and not [e for e in events if e.type == "error"]
+    assert [e.type for e in events if e.type == "info"] == ["info"] and app.state == "listening"
+
+
+async def test_stop_while_speaking_in_continuous_keeps_mic_listening():
+    speaker = FakeSpeaker(block=True)
+    engine = Recorder("raz", "dwa")
+    app, mic = hands_free("continuous", engine, speaker)
+    await mic.say()
+    await speaker.started.wait()
+    app.stop()
+    await settle(app)
+    assert app.state == "listening" and app.mic.running
+    app.stop()  # Stop while just listening must not switch the mic off
+    assert app.state == "listening"
+    speaker.block = False
+    await mic.say()
+    await settle(app)
+    assert engine.heard == ["raz", "dwa"]
+
+
+async def test_barge_in_stops_speech_and_the_interruption_becomes_the_next_turn():
+    speaker = FakeSpeaker(block=True)
+    engine = Recorder("raz", "dwa")
+    app, mic = hands_free("continuous", engine, speaker)
+    app.config.barge_in.enabled, app.config.barge_in.hold_ms = True, 90
+    await mic.say()
+    await speaker.started.wait()
+    speaker.block = False
+    await mic.say(SAY[:3])
+    await asyncio.sleep(0)
+    assert app.state == "listening"
+    await mic.say(SAY[3:])
+    await settle(app)
+    assert engine.heard == ["raz", "dwa"]
+
+
+async def test_set_mode_switches_mic_loop_at_runtime():
+    app, mic = hands_free("continuous")
+    app.set_mode("ptt")
+    assert not app.mic.running and not mic.streams[0].open and app.state == "idle"
+    app.ptt_start()
+    app.set_mode("wake")
+    assert not app.listener.recording and app.mic.running and app.state == "listening"
+    await app.close()
+    assert not app.mic.running
+
+
+async def test_ptt_button_does_not_record_in_hands_free_mode():
+    app, _ = hands_free("continuous")
+    app.ptt_start()
+    assert not app.listener.recording and app.ptt_stop() is None and app.state == "listening"
+
+
+async def test_mic_error_falls_back_to_ptt():
+    app, _ = hands_free("ptt", fail=OSError("PortAudio: no device"))
+    q = app.bus.subscribe()
+    app.set_mode("continuous")
+    events = drain(q)
+    assert [e.data["kind"] for e in events if e.type == "error"] == ["other"]
+    assert "mikrofon" in [e for e in events if e.type == "error"][0].data["message"]
+    assert app.config.conversation.mode == "ptt" and app.state == "idle" and not app.mic.running
+
+
+async def test_start_runs_mic_loop_when_configured_hands_free():
+    mic = MicStreams()
+    cfg = load_config(env={})
+    cfg.conversation.mode = "continuous"
+    app = App(cfg, engine=Recorder(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(), cfg, EventBus()), mic_stream=mic)
+    await app.start()
+    assert app.mic.running and app.state == "listening"
+    await app.close()
