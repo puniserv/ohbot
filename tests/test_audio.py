@@ -95,3 +95,23 @@ async def test_stop_aborts_from_the_playback_thread():
     speaker.stop()
     assert await task is False
     assert stream.aborted_from == stream.writer
+
+
+async def test_a_cancelled_play_does_not_keep_playing_under_the_next_one():
+    # regression: to_thread cancellation leaves the worker running and the next play() cleared the shared stop flag,
+    # so an interrupted reply (and its lips) kept playing over the greeting after "Nowa rozmowa"
+    streams = []
+
+    def factory(rate):
+        streams.append(FakeStream(delay=0.02))
+        return streams[-1]
+
+    speaker = Speaker(factory)
+    old = asyncio.create_task(speaker.play(sine(5.0)))
+    await asyncio.sleep(0.1)
+    speaker.stop()
+    old.cancel()
+    await asyncio.gather(old, return_exceptions=True)
+    assert await speaker.play(sine(0.4)) is True
+    await asyncio.sleep(0.1)
+    assert streams[0].aborted and streams[0].written < len(sine(1.0))
