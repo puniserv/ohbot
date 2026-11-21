@@ -123,6 +123,12 @@ async def test_models_list_uses_the_configured_timeout():
     assert client.list_kw == {"timeout": 3}
 
 
+async def test_rejected_key_detail_shows_no_key_fragment():
+    err = openai.AuthenticationError("Incorrect API key provided: sk-ab***wxyz.", response=_resp(401), body=None)
+    res = await run(FakeClient(models_error=err))
+    assert "sk-" not in res[2].detail and "odrzucony" in res[2].detail
+
+
 async def test_network_error_fails_internet_check():
     res = await run(FakeClient(models_error=openai.APIConnectionError(request=httpx2.Request("GET", "http://x"))))
     assert res[1].ok is False

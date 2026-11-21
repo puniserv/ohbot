@@ -97,7 +97,7 @@ async def run_doctor(
         if e.kind == "network":
             return CheckResult(name, False, f"{SKIPPED}: brak połączenia", "Najpierw napraw połączenie z internetem.")
         if e.kind == "auth":
-            return CheckResult(name, False, f"klucz odrzucony ({e})", "Sprawdź OPENAI_API_KEY w .env; klucz mógł wygasnąć albo zostać odwołany.")
+            return CheckResult(name, False, "klucz odrzucony", "Sprawdź OPENAI_API_KEY w .env; klucz mógł wygasnąć albo zostać odwołany.")
         return CheckResult(name, False, f"API zwróciło błąd ({e})", "Spróbuj ponownie za chwilę; jeśli błąd wraca, sprawdź status.openai.com.")
 
     def models() -> CheckResult:

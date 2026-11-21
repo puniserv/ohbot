@@ -256,6 +256,15 @@ async def test_unexpected_exception_ends_in_idle_with_error_event(where):
     assert [e.data["kind"] for e in drain(q) if e.type == "error"] == ["other"]
 
 
+async def test_other_error_shows_a_generic_message_and_logs_the_raw_one(caplog):
+    app, _ = make(FakeEngine(fail=EngineError("other", "Error code: 400 - {'message': 'sdk detail'}")))
+    q = app.bus.subscribe()
+    await app.handle_utterance(LONG_ENOUGH)
+    [error] = [e for e in drain(q) if e.type == "error"]
+    assert error.data["message"] == "Coś poszło nie tak – szczegóły w logu"
+    assert "sdk detail" in caplog.text
+
+
 async def test_lip_delay_defers_mouth_moves_including_closing():
     app, driver = make(delay=200)
     await app.handle_utterance(LONG_ENOUGH)

@@ -112,7 +112,7 @@ const handlers = {
   },
   info: (d) => ($("info").textContent = d.text),
   reply: (d) => bubble("robot", "Ohbot:", d.text),
-  error: (d) => toast(ERRORS[d.kind] || (d.kind === "other" && d.message) || "Coś poszło nie tak"),
+  error: (d) => toast(ERRORS[d.kind] || (d.kind === "other" && d.message) || "Coś poszło nie tak – szczegóły w logu"),
   robot: (d) => setRobot(d.connected),
   level: (d) => ($("meter-bar").style.width = Math.min(100, d.level * 100) + "%"),
   settings: applySettings,
