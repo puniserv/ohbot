@@ -115,3 +115,17 @@ def test_window_without_pywebview_falls_back_to_the_browser_with_a_warning(monke
     assert main(["--window", "--port", "9999"]) == 0
     assert calls == ["http://127.0.0.1:9999/"]
     assert "pywebview" in caplog.text
+
+
+def test_frozen_build_works_in_the_exe_folder_so_ohbotdata_lands_there(monkeypatch, tmp_path):
+    import os
+    import sys
+
+    import pytest
+
+    monkeypatch.chdir(os.getcwd())  # restores the cwd after the test
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "ohbot-chat.exe"))
+    with pytest.raises(SystemExit):
+        main(["--help"])
+    assert os.getcwd() == str(tmp_path.resolve())

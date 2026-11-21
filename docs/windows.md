@@ -9,7 +9,7 @@
    OPENAI_API_KEY=sk-...
    ```
 
-   The app reads `.env`, `config.toml`, `personas\` and `web\` from the exe's folder, and writes `cache\` and `ohbotData\` there.
+   The app reads `.env`, `config.toml`, `personas\` and `web\` from the exe's folder, and writes `cache\` and `ohbotData\` there, whatever directory you start it from. The folder must be writable, so do not put it in `C:\Program Files`; if it is read-only, the robot shows as unplugged.
    You can edit `config.toml` and the persona files in place. Restart the app after you change them.
 3. Plug in the robot, then double-click `ohbot-chat.exe` or run it from a terminal:
 

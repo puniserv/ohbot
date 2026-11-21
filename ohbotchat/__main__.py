@@ -1,11 +1,12 @@
 import argparse
 import asyncio
 import logging
+import os
 import sys
 import threading
 import webbrowser
 
-from .config import load_config
+from .config import app_root, load_config
 from .doctor import CheckResult, run_doctor
 from .engine import EngineError
 from .web import DEFAULT_PORT
@@ -156,6 +157,8 @@ def _window(port: int) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if getattr(sys, "frozen", False):
+        os.chdir(app_root())  # the ohbot library writes ohbotData/ into the cwd
     parser = argparse.ArgumentParser(prog="ohbotchat", description="Rozmowa głosowa z robotem Ohbot")
     parser.add_argument("command", nargs="?", choices=["doctor"])
     parser.add_argument("--no-web", action="store_true", help="pętla w terminalu zamiast strony w przeglądarce")
