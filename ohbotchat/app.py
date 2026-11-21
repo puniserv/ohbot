@@ -1,11 +1,12 @@
 import asyncio
 import logging
+import random
 
 from .audio import envelope, lip_positions
 from .config import Config
 from .engine import EngineError
 from .events import EventBus
-from .fallback import PHRASES, Fallback
+from .fallback import FILLERS, PHRASES, Fallback
 from .listen import Listener, wake_match
 from .loop import MicLoop
 from .robot import OhbotDriver, Robot
@@ -16,6 +17,8 @@ log = logging.getLogger(__name__)
 
 PCM_BYTES_PER_S = 16000 * 2
 MIN_PCM_BYTES = PCM_BYTES_PER_S * 3 // 10  # under 0.3 s is a click, not speech
+FILLER_DELAY_S = 0.7  # a reply ready sooner needs no "Hmm…"
+VOICE_SAMPLE = "Cześć! Tak brzmi mój głos."
 GENERIC_ERROR = "Coś poszło nie tak – szczegóły w logu"
 _FALLBACK_KEY = {"network": "no_network", "moderated": "moderated", "empty": "not_heard"}
 
@@ -31,8 +34,7 @@ class App:
         self.engine = engine or self._default_engine()
         self.speaker = speaker or Speaker()
         self.robot = robot or Robot(OhbotDriver(), config, self.bus)
-        tts = f"{config.openai.tts_model}-{config.openai.tts_voice}"  # a new voice must not reuse the old recordings
-        self.fallback = fallback or Fallback(config.root / "cache" / "fallback" / tts)
+        self.fallback = fallback or Fallback(self._fallback_dir())
         self.listener = listener or Listener(config, self.bus)
         self.mic = MicLoop(config, self.bus, lambda: self.state, self.start_turn, self._barge_in, self._mic_lost, mic_stream)
         self.state = State.IDLE
@@ -46,6 +48,10 @@ class App:
         self._wake_until = 0.0
         self._closed = False
         self.mic_error: str | None = None  # a client that connects after the failure still has to see it
+
+    def _fallback_dir(self):
+        c = self.config.openai
+        return self.config.root / "cache" / "fallback" / f"{c.tts_model}-{c.tts_voice}"  # a new voice must not reuse the old recordings
 
     def _default_engine(self):
         import openai
@@ -61,8 +67,31 @@ class App:
         await asyncio.to_thread(self.robot.start)
         self._background = [asyncio.create_task(self.robot.idle_loop())]
         self._ensure_fallback()
+        if self.robot.connected:
+            self.greet()
         if self.config.conversation.mode != "ptt":
             self._start_mic()
+
+    def apply_settings(self, values: dict[str, dict]) -> None:
+        """`values` must come from config.validate_settings; everything else reads the config when used."""
+        voice = self.config.openai.tts_voice
+        for section, keys in values.items():
+            for key, value in keys.items():
+                setattr(getattr(self.config, section), key, value)
+        self.mic.segmenter.set_silence_ms(self.config.vad.silence_ms)
+        if self.config.openai.tts_voice != voice:
+            self.fallback.dir = self._fallback_dir()
+            self._ensure_fallback()
+
+    def ready(self) -> bool:
+        """Manual test commands (motors, test sentence) run only while the robot does nothing else."""
+        return self.state == State.IDLE and not self._busy()
+
+    def manual_gesture(self, name: str) -> None:
+        if self._gesture:
+            self._gesture.cancel()  # its finally queues the neutral pose before the new gesture starts
+        self.robot.pause_idle()
+        self._gesture = asyncio.create_task(self.robot.gesture(name))
 
     async def close(self) -> None:
         if self._closed:  # called from uvicorn shutdown and again from the caller's finally
@@ -205,22 +234,53 @@ class App:
             self.listener.stop_ptt()
             self._act(self._abort_action)
 
+    def greet(self) -> asyncio.Task:
+        return self.say(self.config.conversation.greeting, cache=True)
+
+    def voice_sample(self, voice: str) -> asyncio.Task:
+        return self.say(VOICE_SAMPLE, voice=voice)
+
+    def say(self, text: str, voice: str | None = None, cache: bool = False) -> asyncio.Task:
+        """Speaks text that is not a reply (greeting, test sentence) after any turn being stopped; never in history."""
+        prev = self._task if self._busy() else None
+        self._task = asyncio.create_task(self._guarded(lambda: self._say(text, voice, cache, prev), self.config.conversation.mode))
+        return self._task
+
+    async def _say(self, text: str, voice: str | None, cache: bool, prev: asyncio.Task | None) -> None:
+        if prev:
+            await asyncio.gather(prev, return_exceptions=True)
+        self._abort_action = None
+        self._act("say")
+        pcm = self.fallback.cached(text) if cache else None
+        if pcm is None:
+            pcm = await self.engine.say(text, voice)
+            if cache:
+                self.fallback.store(text, pcm)
+        await self._reply(text, pcm)
+
     async def handle_utterance(self, pcm: bytes) -> None:
         mode = self.config.conversation.mode  # a switch from the UI applies from the next utterance
+        await self._guarded(lambda: self._utterance(pcm, mode), mode)
+
+    async def _utterance(self, pcm: bytes, mode: str) -> None:
+        if self.state == State.IDLE:
+            self._act("listen")
+        self._act("utterance")
+        if len(pcm) < MIN_PCM_BYTES:
+            raise EngineError("empty")
+        # STT latency must not eat into the wake window
+        spoke_at = asyncio.get_running_loop().time() - len(pcm) / PCM_BYTES_PER_S
+        heard = await self.engine.transcribe(pcm)
+        if mode == "wake":
+            heard = await self._wake(heard, spoke_at)
+            if heard is None:
+                return
+        await self._respond(heard)
+
+    async def _guarded(self, work, mode: str) -> None:
+        """Runs one turn: errors become the spoken fallback, a stop ends in the state `stop()` chose."""
         try:
-            if self.state == State.IDLE:
-                self._act("listen")
-            self._act("utterance")
-            if len(pcm) < MIN_PCM_BYTES:
-                raise EngineError("empty")
-            # STT latency must not eat into the wake window
-            spoke_at = asyncio.get_running_loop().time() - len(pcm) / PCM_BYTES_PER_S
-            heard = await self.engine.transcribe(pcm)
-            if mode == "wake":
-                heard = await self._wake(heard, spoke_at)
-                if heard is None:
-                    return
-            await self._respond(heard)
+            await work()
         except EngineError as e:
             if e.kind == "empty" and mode != "ptt":  # room noise must not make the robot say "nie usłyszałem"
                 self._ignore("(nic nie rozpoznano)")
@@ -272,21 +332,35 @@ class App:
             self.bus.publish("heard", text=heard)
 
         self._act("heard")
+        pending = asyncio.create_task(self.engine.respond(heard, self.history, show))
         try:
-            reply = await self.engine.respond(heard, self.history, show)
+            if self.config.conversation.fillers:
+                done, _ = await asyncio.wait({pending}, timeout=FILLER_DELAY_S)
+                if not done and (filler := self._filler()):
+                    await self._speak(filler)
+            reply = await pending
         except EngineError as e:
             if e.kind == "moderated" and not shown:
                 self.bus.publish("heard", text="(ukryto)")
             raise
+        finally:
+            pending.cancel()  # a stop during the filler must drop the reply too
         self._remember(heard, reply.text)
-        self.bus.publish("reply", text=reply.text)
+        await self._reply(reply.text, reply.pcm, reply.gesture)
+        if not self.fallback.complete():
+            self._ensure_fallback()
+
+    def _filler(self) -> bytes | None:
+        cached = [pcm for text in FILLERS if (pcm := self.fallback.cached(text))]
+        return random.choice(cached) if cached else None
+
+    async def _reply(self, text: str, pcm: bytes, gesture: str | None = None) -> None:
+        self.bus.publish("reply", text=text)
         self._act("reply")
-        if await self._speak(reply.pcm, reply.gesture):
+        if await self._speak(pcm, gesture):
             self._act("done")
         else:
             self._act(self._abort_action or "cancel")
-        if not self.fallback.complete():
-            self._ensure_fallback()
 
     def _remember(self, heard: str, text: str) -> None:
         n = self.config.conversation.history_turns

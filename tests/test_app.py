@@ -36,6 +36,12 @@ class FakeEngine:
     async def synthesize(self, text):
         return b"\x00\x00"
 
+    async def say(self, text, voice=None):
+        self.said = [*getattr(self, "said", []), (text, voice)]
+        if self.fail and self.fail_stage == "say":
+            raise self.fail
+        return b"SAY-" + text.encode()[:4]
+
 
 class FakeSpeaker:
     def __init__(self, block=False, fail=None):
@@ -63,6 +69,7 @@ class FakeSpeaker:
 class FakeFallback:
     def __init__(self, complete=True):
         self.asked, self.ensured, self._complete = [], 0, complete
+        self.dir, self.texts = None, {}
 
     def complete(self):
         return self._complete
@@ -74,6 +81,12 @@ class FakeFallback:
 
     async def ensure(self, engine):
         self.ensured += 1
+
+    def cached(self, text):
+        return self.texts.get(text)
+
+    def store(self, text, pcm):
+        self.texts[text] = pcm
 
 
 class FakeListener:
@@ -835,3 +848,143 @@ async def test_close_lets_the_leftover_gesture_reach_neutral():
     await app.close()
     assert ("move", HEADNOD, 5, app.config.robot.gesture_speed) in driver.calls
     assert driver.closed
+
+
+GREETING = "Cześć! Jestem Ohbot. O czym porozmawiamy?"
+
+
+async def test_greeting_is_spoken_moderated_once_then_from_cache_and_never_in_history():
+    engine = FakeEngine()
+    app, _ = make(engine)
+    q = app.bus.subscribe()
+    await app.greet()
+    await app.greet()
+    assert engine.said == [(GREETING, None)]  # the second one comes from the cache
+    assert app.speaker.played == [b"SAY-Cze\xc5", b"SAY-Cze\xc5"] and app.history == []
+    events = drain(q)
+    assert states(events) == ["thinking", "speaking", "idle"] * 2
+    assert [e.data["text"] for e in events if e.type == "reply"] == [GREETING, GREETING]
+
+
+async def test_new_conversation_greeting_waits_for_the_stopped_turn():
+    gate = asyncio.Event()
+
+    class Slow(FakeEngine):
+        async def respond(self, heard, history, on_safe=None):
+            await gate.wait()
+            return await super().respond(heard, history, on_safe)
+
+    app, _ = make(Slow())
+    app.start_turn(LONG_ENOUGH)
+    await asyncio.sleep(0.01)
+    app.new_conversation()
+    await app.greet()
+    assert app.speaker.played == [b"SAY-Cze\xc5"] and app.history == [] and app.state == "idle"
+
+
+async def test_flagged_greeting_or_test_sentence_plays_the_moderated_phrase():
+    app, _ = make(FakeEngine(fail=EngineError("moderated"), fail_stage="say"))
+    await app.say("brzydkie")
+    assert app.fallback.asked == ["moderated"] and app.fallback.texts == {} and app.state == "idle"
+
+
+async def test_voice_sample_uses_the_given_voice_and_is_not_cached():
+    engine = FakeEngine()
+    app, _ = make(engine)
+    await app.voice_sample("ash")
+    assert engine.said[0][1] == "ash" and app.fallback.texts == {}
+
+
+@pytest.mark.parametrize("connected", [True, False])
+async def test_start_greets_only_with_the_robot_connected(connected):
+    cfg = load_config(env={})
+    engine = FakeEngine()
+    app = App(cfg, engine=engine, speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(connected), cfg, EventBus()), mic_stream=MicStreams())
+    await app.start()
+    await settle(app)
+    assert getattr(engine, "said", []) == ([(GREETING, None)] if connected else [])
+    await app.close()
+
+
+async def test_hands_free_greeting_mutes_the_mic_and_listens_again():
+    app, mic = hands_free("continuous")
+    q = app.bus.subscribe()
+    await app.greet()
+    assert states(drain(q)) == ["thinking", "speaking", "idle", "listening"]
+
+
+async def test_ready_only_when_idle_and_free():
+    app, _ = make()
+    assert app.ready()
+    app.ptt_start()
+    assert not app.ready()
+
+
+class SlowEngine(FakeEngine):
+    def __init__(self, delay=0.05, **kw):
+        super().__init__(**kw)
+        self.delay = delay
+
+    async def respond(self, heard, history, on_safe=None):
+        await asyncio.sleep(self.delay)
+        return await super().respond(heard, history, on_safe)
+
+
+def with_filler(app):
+    app.fallback.texts["Hmm…"] = b"FILLER"
+
+
+async def test_slow_reply_gets_a_filler_first_and_the_filler_stays_out_of_history(monkeypatch):
+    monkeypatch.setattr("ohbotchat.app.FILLER_DELAY_S", 0.01)
+    app, _ = make(SlowEngine())
+    with_filler(app)
+    await app.handle_utterance(LONG_ENOUGH)
+    assert app.speaker.played == [b"FILLER", SPEECH_PCM]
+    assert [m["content"] for m in app.history] == ["Cześć", "Hej!"]
+
+
+async def test_fast_reply_or_fillers_off_has_no_filler(monkeypatch):
+    app, _ = make()
+    with_filler(app)
+    await app.handle_utterance(LONG_ENOUGH)
+    assert app.speaker.played == [SPEECH_PCM]
+    monkeypatch.setattr("ohbotchat.app.FILLER_DELAY_S", 0.01)
+    app, _ = make(SlowEngine())
+    with_filler(app)
+    app.config.conversation.fillers = False
+    await app.handle_utterance(LONG_ENOUGH)
+    assert app.speaker.played == [SPEECH_PCM]
+
+
+async def test_stop_during_the_filler_cuts_the_filler_and_the_reply(monkeypatch):
+    monkeypatch.setattr("ohbotchat.app.FILLER_DELAY_S", 0.01)
+    engine = SlowEngine(delay=0.05)
+    speaker = FakeSpeaker(block=True)
+    app, _ = make(engine, speaker)
+    with_filler(app)
+    task = app.start_turn(LONG_ENOUGH)
+    await speaker.started.wait()
+    app.stop()
+    await asyncio.gather(task, return_exceptions=True)
+    await asyncio.sleep(0.1)  # the reply would have arrived by now
+    assert speaker.played == [b"FILLER"] and app.history == [] and app.state == "idle"
+
+
+async def test_apply_settings_switches_voice_cache_and_vad_silence():
+    app, _ = make()
+    app.apply_settings({"openai": {"tts_voice": "ash"}, "vad": {"silence_ms": 900}, "robot": {"lip_open": 7.0}})
+    assert app.config.openai.tts_voice == "ash" and app.config.robot.lip_open == 7.0
+    assert app.fallback.dir.name.endswith("-ash")
+    await app._ensure_task
+    assert app.fallback.ensured == 1
+    assert app.mic.segmenter._silence_frames == 900 // 30
+
+
+async def test_manual_gesture_runs_and_pauses_idle():
+    app, driver = make()
+    app.config.robot.gesture_step_s = 0
+    app.manual_gesture("yes")
+    await app._gesture
+    app.robot.flush()
+    assert ("move", HEADNOD, 7, app.config.robot.gesture_speed) in driver.calls
+    assert app.robot._idle_after > 0

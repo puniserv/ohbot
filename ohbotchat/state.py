@@ -12,6 +12,8 @@ class State(StrEnum):
 
 _TABLE: dict[tuple[State, str], State] = {
     (State.IDLE, "listen"): State.LISTENING,
+    (State.IDLE, "say"): State.THINKING,  # greeting or test sentence: no child utterance, straight to the reply
+    (State.LISTENING, "say"): State.THINKING,
     (State.LISTENING, "utterance"): State.TRANSCRIBING,
     (State.LISTENING, "stop"): State.IDLE,
     (State.TRANSCRIBING, "heard"): State.THINKING,

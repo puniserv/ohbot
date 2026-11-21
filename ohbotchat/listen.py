@@ -33,10 +33,13 @@ class Segmenter:
     ) -> None:
         self._is_speech = is_speech or _vad_is_speech(aggressiveness)
         self._max_frames = max(1, int(max_ms // FRAME_MS)) if max_ms else None
-        self._silence_frames = max(1, silence_ms // FRAME_MS)
+        self.set_silence_ms(silence_ms)
         self._min_speech_frames = max(1, min_speech_ms // FRAME_MS)
         self._lead: deque[bytes] = deque(maxlen=LEAD_IN_FRAMES)
         self._reset()
+
+    def set_silence_ms(self, silence_ms: int) -> None:
+        self._silence_frames = max(1, silence_ms // FRAME_MS)
 
     def _reset(self) -> None:
         self._frames: list[bytes] = []
