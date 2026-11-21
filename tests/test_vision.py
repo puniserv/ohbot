@@ -4,7 +4,7 @@ from types import SimpleNamespace as NS
 import numpy as np
 
 from ohbotchat.config import CameraConfig, load_config
-from ohbotchat.vision import RETRY_S, UNAVAILABLE, Face, Vision, largest, motor_target, position
+from ohbotchat.vision import MODEL, RETRY_S, UNAVAILABLE, Face, Vision, largest, load_detector, motor_target, position
 
 W, H = 320, 240
 
@@ -208,3 +208,11 @@ def test_thread_tracks_until_stopped_then_releases_the_camera():
     seen = r.vision.face
     r.vision.stop()
     assert seen is not None and r.cams[0].released and r.vision.face is None
+
+
+def test_yunet_model_is_bundled():
+    assert MODEL.is_file() and 200_000 < MODEL.stat().st_size < 300_000  # a Git LFS pointer would be ~130 bytes
+
+
+def test_real_detector_finds_nothing_in_a_black_frame():
+    assert load_detector()(np.zeros((480, 640, 3), np.uint8)) == []  # loads the model; no camera involved

@@ -10,6 +10,7 @@ a = Analysis(
         (f"{ROOT}/web", "web"),
         (f"{ROOT}/personas", "personas"),
         (f"{ROOT}/config.toml", "."),
+        (f"{ROOT}/ohbotchat/models", "ohbotchat/models"),
         *collect_data_files("ohbot"),
     ],
 )

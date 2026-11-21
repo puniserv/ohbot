@@ -12,6 +12,7 @@ dependencies = [
     "uvicorn",
     "ohbot",
     "websockets>=17.4",
+    "opencv-python-headless>=5.1.0.95",
 ]
 
 [project.scripts]
