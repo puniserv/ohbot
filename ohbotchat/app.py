@@ -81,9 +81,11 @@ class App:
         await asyncio.to_thread(self.robot.start)
         if self._closed:  # Ctrl+C during the connect: close() already ran and must stay the last word
             return
-        self.vision.start()
         self._background = [asyncio.create_task(self._tick_loop())]
         self._ensure_fallback()
+        if self.asleep:  # put to sleep during the connect; wake starts the camera and mic
+            return
+        self.vision.start()
         if self.robot.connected:
             self.greet()
         if self.config.conversation.mode != "ptt":

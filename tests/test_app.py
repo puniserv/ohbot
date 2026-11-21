@@ -1330,3 +1330,22 @@ async def test_a_failed_wake_still_tells_the_ui_and_logs_why(monkeypatch, caplog
     await app.set_asleep(False)  # a fire-and-forget task in web.py: nobody else would see the error
     assert [e.data for e in drain(q) if e.type == "sleep"] == [{"asleep": True}]  # else the button stays on "Budzę…"
     assert "port busy" in caplog.text
+
+
+async def test_sleep_during_the_robot_connect_keeps_camera_and_mic_off(monkeypatch):
+    from ohbotchat import robot as robot_mod
+
+    monkeypatch.setattr(robot_mod, "SETTLE_S", 0)
+    cfg = Config()
+    cfg.conversation.mode = "continuous"
+    app, _ = make(cfg=cfg)
+    entered, gate = _slow_robot_start(app)
+    task = asyncio.create_task(app.start())
+    assert await asyncio.to_thread(entered.wait, 2)
+    sleep = asyncio.create_task(app.set_asleep(True))
+    await asyncio.sleep(0.05)
+    gate.set()
+    await asyncio.gather(task, sleep)
+    assert app.asleep and not app.vision.running and not app.mic.running
+    assert app._background  # the tick loop must exist, or a later wake has nothing driving the robot
+    await app.close()
