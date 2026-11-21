@@ -107,3 +107,15 @@ def test_start_ptt_twice_keeps_first_recording():
     lis.start_ptt()  # key auto-repeat
     assert len(streams) == 1 and lis.recording
     assert lis.stop_ptt() == b"ab" and not lis.recording
+
+
+def test_ptt_publishes_level_for_the_meter():
+    streams, bus = [], EventBus()
+    q = []
+    bus._deliver = q.append  # no loop needed to observe what is published
+    lis = Listener(load_config(env={}), bus, lambda cb: streams.append(FakeStream(cb)) or streams[-1])
+    lis.start_ptt()
+    for _ in range(3):
+        streams[0].cb(b"\x00\x40" * 480)
+    lis.stop_ptt()
+    assert [e.data["level"] for e in q if e.type == "level"] == [pytest.approx(0.5, abs=0.01), 0.0]
