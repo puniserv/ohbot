@@ -91,3 +91,14 @@ async def test_bus_full_queue_drops_oldest_instead_of_growing():
         bus.publish("level", n=i)
     assert q.qsize() == QUEUE_SIZE
     assert q.get_nowait().data["n"] == 5 and q._queue[-1].data["n"] == QUEUE_SIZE + 4
+
+
+def test_app_root_is_the_exe_folder_in_a_frozen_build(monkeypatch, tmp_path):
+    import sys
+
+    from ohbotchat.config import ROOT, app_root
+
+    assert app_root() == ROOT
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "ohbotchat.exe"))
+    assert app_root() == tmp_path.resolve()

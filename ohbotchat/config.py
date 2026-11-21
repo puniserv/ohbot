@@ -1,9 +1,19 @@
 import os
+import sys
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+
+
+def app_root() -> Path:
+    # the build uses --contents-directory . so web/, personas/, config.toml and .env all sit next to the exe
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent.parent
+
+
+ROOT = app_root()
 
 
 @dataclass
