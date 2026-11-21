@@ -57,6 +57,9 @@ function setRobot(connected) {
 
 function applySettings(s) {
   $("mode").value = s.mode;
+  $("mode-cost").hidden = s.mode === "ptt";
+  $("talk").disabled = s.mode !== "ptt"; // hands-free modes listen all the time
+  if (s.mode !== "ptt") talkStop();
   if ([...$("persona").options].some((o) => o.value === s.persona)) $("persona").value = s.persona;
   barge = s.barge_in;
   $("barge-on").checked = barge.enabled;
@@ -99,7 +102,11 @@ const handlers = {
   },
   state: (d) => setState(d.state),
   stage: (d) => setActive(d.status === "start" ? [d.name] : []),
-  heard: (d) => bubble("child", "Ty:", d.text),
+  heard: (d) => {
+    $("info").textContent = "";
+    bubble("child", "Ty:", d.text);
+  },
+  info: (d) => ($("info").textContent = d.text),
   reply: (d) => bubble("robot", "Ohbot:", d.text),
   error: (d) => toast(ERRORS[d.kind] || (d.kind === "other" && d.message) || "Coś poszło nie tak"),
   robot: (d) => setRobot(d.connected),
@@ -122,7 +129,7 @@ function connect() {
 }
 
 function talkStart() {
-  if (held) return;
+  if (held || $("talk").disabled) return;
   held = true;
   $("talk").classList.add("held");
   send({ cmd: "ptt_start" });

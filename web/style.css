@@ -14,6 +14,9 @@ aside { flex: 1; padding: 24px; border-left: 2px solid var(--panel); overflow-y:
 aside h2 { margin: 0 0 12px; }
 #robot-dot { width: 90px; height: 90px; border-radius: 50%; background: rgb(0, 0, 76); border: 4px solid var(--fg); transition: background .2s; }
 #robot-state { margin: 8px 0 16px; color: var(--dim); }
+#info, .note { font-size: 18px; color: var(--dim); }
+#info { min-height: 1.4em; margin-bottom: 12px; }
+#talk:disabled { opacity: .4; cursor: default; }
 #pipeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 #pipeline li { padding: 8px 16px; border-radius: 12px; border: 3px solid var(--panel); opacity: .55; }
 #pipeline li b { display: block; font-size: 30px; }
