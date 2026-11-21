@@ -20,11 +20,10 @@ _COLOUR_KEY = {
 }
 RETRY_S = 5.0
 
-GESTURE_STEP_S = 0.25
-GESTURE_SPEED = 8
 GESTURE_FLASH = (10, 10, 0)
 _NEUTRAL = ((HEADNOD, 5), (HEADTURN, 5), (EYETURN, 5), (EYETILT, 5), (LIDBLINK, 10))
-# Each step is held for GESTURE_STEP_S. Directions are unverified on hardware; tune positions here.
+_REST = dict(_NEUTRAL)
+# Each step is held for [robot] gesture_step_s. Directions are unverified on hardware; tune positions here.
 _GESTURES = {
     "yes": [[(HEADNOD, 7)], [(HEADNOD, 3)], [(HEADNOD, 7)], [(HEADNOD, 3)]],
     "no": [[(HEADTURN, 3)], [(HEADTURN, 7)], [(HEADTURN, 3)], [(HEADTURN, 7)]],
@@ -192,11 +191,15 @@ class Robot:
         self._submit(run)
 
     def _gesture_step(self, step: list) -> None:
+        r = self._cfg.robot
         for move in step:
             if move == "flash":
                 self._driver.eye_colour(*GESTURE_FLASH)
             else:
-                self._driver.move(*move, GESTURE_SPEED)
+                motor, pos = move
+                rest = _REST[motor]
+                pos = min(10, max(0, rest + (pos - rest) * r.gesture_scale))
+                self._driver.move(motor, pos, r.gesture_speed)
 
     async def gesture(self, name: str | None) -> None:
         """Sleeps on the event loop, not the worker thread, so lip moves keep flowing; cancel it to cut it short."""
@@ -206,7 +209,7 @@ class Robot:
         try:
             for step in steps:
                 self._submit(self._gesture_step, step)
-                await asyncio.sleep(GESTURE_STEP_S)
+                await asyncio.sleep(self._cfg.robot.gesture_step_s)
         finally:
             self._submit(self._gesture_step, _NEUTRAL)
             self._submit(self._apply_colour)

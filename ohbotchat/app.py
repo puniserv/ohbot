@@ -16,7 +16,6 @@ log = logging.getLogger(__name__)
 
 PCM_BYTES_PER_S = 16000 * 2
 MIN_PCM_BYTES = PCM_BYTES_PER_S * 3 // 10  # under 0.3 s is a click, not speech
-WAKE_WINDOW_S = 8  # after a bare "Ohbot!" the next utterance needs no wake word
 GENERIC_ERROR = "Coś poszło nie tak – szczegóły w logu"
 _FALLBACK_KEY = {"network": "no_network", "moderated": "moderated", "empty": "not_heard"}
 
@@ -165,7 +164,7 @@ class App:
             self._open_wake_window()
 
     def _open_wake_window(self) -> None:
-        self._wake_until = asyncio.get_running_loop().time() + WAKE_WINDOW_S
+        self._wake_until = asyncio.get_running_loop().time() + self.config.wake.window_s
 
     def ptt_abort(self) -> None:
         """Drops a recording without a turn (client vanished while the button was held)."""

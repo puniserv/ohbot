@@ -7,7 +7,6 @@ from ohbotchat.config import load_config
 from ohbotchat.engine import EngineError, Reply
 from ohbotchat.events import EventBus
 from ohbotchat.listen import Segmenter
-from ohbotchat import robot as robot_mod
 from ohbotchat.robot import BOTTOMLIP, HEADNOD, TOPLIP, NullDriver, Robot
 
 SPEECH_PCM = b"\x00\x20" * 24000  # 1 s of loud-ish signal at 24 kHz
@@ -536,10 +535,10 @@ async def test_bare_wake_word_says_listening_then_accepts_next_utterance(monkeyp
     assert engine.heard == ["opowiedz dowcip"]  # the window is used up
 
 
-async def test_wake_window_expires(monkeypatch):
-    monkeypatch.setattr("ohbotchat.app.WAKE_WINDOW_S", 0.01)
+async def test_wake_window_expires():
     engine = Recorder("Ohbot", "opowiedz dowcip")
     app, mic = hands_free("wake", engine)
+    app.config.wake.window_s = 0.01
     await mic.say()
     await settle(app)
     await asyncio.sleep(0.2)
@@ -668,8 +667,7 @@ async def test_mode_switch_during_stt_does_not_change_the_running_turn():
     assert engine.heard == ["raz"]
 
 
-async def test_wake_window_counts_from_when_the_child_spoke_not_after_stt(monkeypatch):
-    monkeypatch.setattr("ohbotchat.app.WAKE_WINDOW_S", 0.05)
+async def test_wake_window_counts_from_when_the_child_spoke_not_after_stt():
     engine = Recorder("Ohbot", "opowiedz dowcip")
     orig = engine.transcribe
 
@@ -681,6 +679,7 @@ async def test_wake_window_counts_from_when_the_child_spoke_not_after_stt(monkey
 
     engine.transcribe = slow
     app, mic = hands_free("wake", engine)
+    app.config.wake.window_s = 0.05
     await mic.say()
     await settle(app)
     await mic.say()
@@ -828,11 +827,11 @@ async def test_next_turn_cancels_the_leftover_gesture():
     assert calls[0].is_set() and not calls[1].is_set()
 
 
-async def test_close_lets_the_leftover_gesture_reach_neutral(monkeypatch):
-    monkeypatch.setattr(robot_mod, "GESTURE_STEP_S", 60)
+async def test_close_lets_the_leftover_gesture_reach_neutral():
     app, driver = make(GestureEngine())
+    app.config.robot.gesture_step_s = 60
     await app.handle_utterance(LONG_ENOUGH)
     await asyncio.sleep(0)
     await app.close()
-    assert ("move", HEADNOD, 5, robot_mod.GESTURE_SPEED) in driver.calls
+    assert ("move", HEADNOD, 5, app.config.robot.gesture_speed) in driver.calls
     assert driver.closed

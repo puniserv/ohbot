@@ -5,7 +5,6 @@ from types import SimpleNamespace as NS
 
 import pytest
 
-from ohbotchat import robot as robot_mod
 from ohbotchat.config import load_config
 from ohbotchat.events import EventBus
 from ohbotchat.robot import (
@@ -13,7 +12,6 @@ from ohbotchat.robot import (
     EYETILT,
     EYETURN,
     GESTURE_FLASH,
-    GESTURE_SPEED,
     HEADNOD,
     HEADTURN,
     LIDBLINK,
@@ -190,6 +188,9 @@ GESTURE_EXPECTED = {
 }
 
 
+GESTURE_SPEED = 8
+
+
 def _gesture_calls(steps):
     return [("eye", *GESTURE_FLASH) if s == "flash" else ("move", *s, GESTURE_SPEED) for s in steps]
 
@@ -199,8 +200,7 @@ NEUTRAL_CALLS = [("move", m, p, GESTURE_SPEED) for m, p in ((HEADNOD, 5), (HEADT
 
 @pytest.mark.parametrize("name", list(GESTURE_EXPECTED))
 async def test_gesture_driver_sequence_ends_in_neutral(name, monkeypatch):
-    monkeypatch.setattr(robot_mod, "GESTURE_STEP_S", 0)
-    robot, driver, cfg = make()
+    robot, driver, cfg = make(gesture_step_s=0)
     robot.set_state(State.SPEAKING)
     robot.flush()
     driver.calls.clear()
@@ -219,9 +219,8 @@ async def test_unknown_gesture_does_nothing(name):
     assert driver.calls == []
 
 
-async def test_cancelled_gesture_stops_and_returns_to_neutral(monkeypatch):
-    monkeypatch.setattr(robot_mod, "GESTURE_STEP_S", 60)
-    robot, driver, cfg = make()
+async def test_cancelled_gesture_stops_and_returns_to_neutral():
+    robot, driver, cfg = make(gesture_step_s=60)
     robot.flush()
     driver.calls.clear()
     task = asyncio.create_task(robot.gesture("yes"))
@@ -230,6 +229,21 @@ async def test_cancelled_gesture_stops_and_returns_to_neutral(monkeypatch):
     await asyncio.gather(task, return_exceptions=True)
     robot.flush()
     assert driver.calls == [("move", HEADNOD, 7, GESTURE_SPEED)] + NEUTRAL_CALLS + [("eye", *cfg.colours.idle)]
+
+
+async def test_gesture_scale_shrinks_moves_around_rest_and_clamps():
+    robot, driver, _ = make(gesture_step_s=0, gesture_scale=0.5)
+    robot.flush()
+    driver.calls.clear()
+    await robot.gesture("yes")
+    robot.flush()
+    assert driver.calls[:2] == [("move", HEADNOD, 6, GESTURE_SPEED), ("move", HEADNOD, 4, GESTURE_SPEED)]
+    robot, driver, _ = make(gesture_step_s=0, gesture_scale=4)
+    robot.flush()
+    driver.calls.clear()
+    await robot.gesture("yes")
+    robot.flush()
+    assert driver.calls[:2] == [("move", HEADNOD, 10, GESTURE_SPEED), ("move", HEADNOD, 0, GESTURE_SPEED)]
 
 
 def test_ohbot_driver_reconnect_clears_a_write_stuck_by_unplug(monkeypatch):

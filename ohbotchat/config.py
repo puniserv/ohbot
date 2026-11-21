@@ -39,6 +39,7 @@ class ConversationConfig:
 @dataclass
 class WakeConfig:
     words: list[str] = field(default_factory=lambda: ["ohbot", "hej ohbot", "ochbot", "obot", "ołbot"])
+    window_s: float = 8  # after a bare "Ohbot!" the next utterance needs no wake word
 
 
 @dataclass
@@ -73,6 +74,9 @@ class RobotConfig:
     # measured on the robot: 1 already presses the lips together, the ohbot lib's 5 leaves the mouth open
     lip_closed: float = 1.5
     lip_open: float = 6.5
+    gesture_step_s: float = 0.25
+    gesture_speed: int = 8
+    gesture_scale: float = 1.0  # amplitude around the rest pose
 
 
 @dataclass
