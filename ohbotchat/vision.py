@@ -79,6 +79,7 @@ def _open_camera(index: int):
 
     cap = cv2.VideoCapture(index)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # HD frames would only be shrunk again
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # else detection runs on stale queued frames and the gaze lags
     return cap
 
 

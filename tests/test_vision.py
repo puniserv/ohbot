@@ -216,3 +216,22 @@ def test_yunet_model_is_bundled():
 
 def test_real_detector_finds_nothing_in_a_black_frame():
     assert load_detector()(np.zeros((480, 640, 3), np.uint8)) == []  # loads the model; no camera involved
+
+
+def test_camera_keeps_one_buffered_frame_so_detection_sees_the_latest(monkeypatch):
+    import cv2
+
+    from ohbotchat import vision
+
+    props = {}
+
+    class Cap:
+        def __init__(self, index):
+            pass
+
+        def set(self, prop, value):
+            props[prop] = value
+
+    monkeypatch.setattr(cv2, "VideoCapture", Cap)  # no real camera is opened
+    vision._open_camera(0)
+    assert props[cv2.CAP_PROP_BUFFERSIZE] == 1
