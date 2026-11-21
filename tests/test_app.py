@@ -1296,3 +1296,20 @@ async def test_close_during_the_robot_connect_stops_start_from_going_on():
     gate.set()
     await task
     assert app.closed and not app.vision.running and app._background == []
+
+
+async def test_close_during_the_wake_connect_keeps_camera_and_mic_off(monkeypatch):
+    from ohbotchat import robot as robot_mod
+
+    monkeypatch.setattr(robot_mod, "SETTLE_S", 0)
+    cfg = Config()
+    cfg.conversation.mode = "continuous"
+    app, _ = make(cfg=cfg)
+    await app.set_asleep(True)
+    entered, gate = _slow_robot_start(app)
+    task = asyncio.create_task(app.set_asleep(False))
+    assert await asyncio.to_thread(entered.wait, 2)
+    await app.close()
+    gate.set()
+    await task
+    assert not app.vision.running and not app.mic.running

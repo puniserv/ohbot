@@ -157,6 +157,8 @@ class App:
                 await asyncio.to_thread(self.robot.sleep)
             else:
                 await asyncio.to_thread(self.robot.start)
+                if self._closed:
+                    return
                 self.vision.start()
                 self.asleep = False  # only now, or the tick loop would retry the connect start() is doing
                 if self.config.conversation.mode != "ptt":
