@@ -24,9 +24,9 @@ class MicLoop:
         state: Callable[[], State],
         on_utterance: Callable[[bytes], None],
         on_barge: Callable[[], None],
-        stream_factory: Callable = _mic_stream,
+        stream_factory: Callable | None = None,
     ) -> None:
-        self._cfg, self._state, self._factory = config, state, stream_factory
+        self._cfg, self._state, self._factory = config, state, stream_factory or _mic_stream
         self._on_utterance, self._on_barge = on_utterance, on_barge
         self._bus = bus
         self._meter = LevelMeter(bus)

@@ -32,8 +32,7 @@ class App:
         self.robot = robot or Robot(OhbotDriver(), config, self.bus)
         self.fallback = fallback or Fallback(config.root / "cache" / "fallback")
         self.listener = listener or Listener(config, self.bus)
-        loop_args = (config, self.bus, lambda: self.state, self.start_turn, self._barge_in)
-        self.mic = MicLoop(*loop_args, mic_stream) if mic_stream else MicLoop(*loop_args)
+        self.mic = MicLoop(config, self.bus, lambda: self.state, self.start_turn, self._barge_in, mic_stream)
         self.state = State.IDLE
         self.history: list[dict] = []
         self._task: asyncio.Task | None = None
