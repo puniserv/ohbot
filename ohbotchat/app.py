@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import math
 import random
+import time
 
 from .audio import envelope, lip_positions
 from .config import Config
@@ -12,6 +14,7 @@ from .loop import MicLoop
 from .robot import OhbotDriver, Robot
 from .speak import FRAME_MS, Speaker
 from .state import State, transition
+from .vision import Vision
 
 log = logging.getLogger(__name__)
 
@@ -21,13 +24,15 @@ FILLER_DELAY_S = 0.7  # a reply ready sooner needs no "Hmm…"
 VOICE_SAMPLE = "Cześć! Tak brzmi mój głos."
 GENERIC_ERROR = "Coś poszło nie tak – szczegóły w logu"
 _FALLBACK_KEY = {"network": "no_network", "moderated": "moderated", "empty": "not_heard"}
+TICK_S = 0.1  # eyes follow the face at camera speed (~10 fps); the old 0.25 s made the gaze lag
+GREET_AFTER_S = 1.0  # a child walking past must not be greeted
 
 
 class App:
     """Wires bus, engine, speaker, robot and listener and runs one conversation turn at a time."""
 
     def __init__(
-        self, config: Config, engine=None, speaker=None, robot=None, fallback=None, listener=None, mic_stream=None
+        self, config: Config, engine=None, speaker=None, robot=None, fallback=None, listener=None, mic_stream=None, vision=None
     ) -> None:
         self.config = config
         self.bus = EventBus()
@@ -36,6 +41,7 @@ class App:
         self.robot = robot or Robot(OhbotDriver(), config, self.bus)
         self.fallback = fallback or Fallback(self._fallback_dir())
         self.listener = listener or Listener(config, self.bus)
+        self.vision = vision or Vision(config, self.bus)
         self.mic = MicLoop(
             config, self.bus, lambda: self.state, self.start_turn, self._barge_in, self._mic_lost, mic_stream,
             muted=lambda: self.robot.hold_idle,
@@ -49,6 +55,8 @@ class App:
         self._background: list[asyncio.Task] = []
         self._rec_timer: asyncio.TimerHandle | None = None
         self._wake_until = 0.0
+        self._face_since = self._face_last = self._greeted_at = -math.inf
+        self._greet_due = False
         self._closed = False
         self.mic_error: str | None = None  # a client that connects after the failure still has to see it
 
@@ -68,7 +76,8 @@ class App:
     async def start(self) -> None:
         self.bus.bind(asyncio.get_running_loop())
         await asyncio.to_thread(self.robot.start)
-        self._background = [asyncio.create_task(self.robot.idle_loop())]
+        self.vision.start()
+        self._background = [asyncio.create_task(self._tick_loop())]
         self._ensure_fallback()
         if self.robot.connected:
             self.greet()
@@ -113,7 +122,34 @@ class App:
         self.listener.stop_ptt()
         self.mic.stop()
         await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.to_thread(self.vision.stop)
         await asyncio.to_thread(self.robot.close)
+
+    async def _tick_loop(self) -> None:
+        while True:
+            now, face = time.monotonic(), self.vision.face
+            self.robot.tick(now, face)
+            self._auto_greet(now, face)
+            await asyncio.sleep(TICK_S)
+
+    def _auto_greet(self, now: float, face) -> None:
+        """Greets a child who walked up: a face for GREET_AFTER_S after nobody was there for greet_cooldown_s."""
+        c = self.config.camera
+        if face is None:
+            return
+        if now - self._face_last >= c.lost_after_s:  # a new arrival, not a missed detection
+            self._face_since = now
+            self._greet_due = now - self._face_last >= c.greet_cooldown_s
+        self._face_last = now
+        if not self._greet_due or now - self._face_since < GREET_AFTER_S:
+            return
+        self._greet_due = False  # one chance per arrival: a busy robot is already talking with them
+        if not (c.auto_greet and self.ready()) or now - self._greeted_at < c.greet_cooldown_s:
+            return
+        self.new_conversation()  # whoever talked before left at least greet_cooldown_s ago
+        task = self.greet()
+        if self.config.conversation.mode == "wake":  # the child may answer without saying "Ohbot"
+            task.add_done_callback(lambda t: t.cancelled() or self._open_wake_window())
 
     def _ensure_fallback(self) -> None:
         if self._ensure_task is None or self._ensure_task.done():
@@ -244,6 +280,7 @@ class App:
             self._act(self._abort_action)
 
     def greet(self) -> asyncio.Task:
+        self._greeted_at = time.monotonic()  # startup and "Nowa rozmowa" greetings count for the auto greet cooldown
         return self.say(self.config.conversation.greeting, cache=True)
 
     def voice_sample(self, voice: str) -> asyncio.Task:

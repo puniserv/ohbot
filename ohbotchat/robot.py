@@ -303,11 +303,6 @@ class Robot:
             self._next_glance = now + self._rng.uniform(5, 10)
             self.glance(now)
 
-    async def idle_loop(self) -> None:
-        while True:
-            self.tick(time.monotonic())
-            await asyncio.sleep(0.25)
-
     def close(self) -> None:
         self._closed = True
 

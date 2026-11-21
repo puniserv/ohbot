@@ -1,4 +1,5 @@
 import asyncio
+import time
 
 import pytest
 
@@ -7,7 +8,8 @@ from ohbotchat.config import load_config
 from ohbotchat.engine import EngineError, Reply
 from ohbotchat.events import EventBus
 from ohbotchat.listen import Segmenter
-from ohbotchat.robot import BOTTOMLIP, HEADNOD, TOPLIP, NullDriver, Robot
+from ohbotchat.robot import BOTTOMLIP, EYETURN, HEADNOD, TOPLIP, NullDriver, Robot
+from ohbotchat.vision import Face
 
 SPEECH_PCM = b"\x00\x20" * 24000  # 1 s of loud-ish signal at 24 kHz
 LONG_ENOUGH = b"\x00\x00" * 16000
@@ -104,6 +106,17 @@ class FakeListener:
         return LONG_ENOUGH
 
 
+class FakeVision:
+    def __init__(self):
+        self.face, self.ok, self.running = None, None, False
+
+    def start(self):
+        self.running = True
+
+    def stop(self):
+        self.running = False
+
+
 def make(engine=None, speaker=None, turns=None, mode=None, delay=None, fallback=None):
     cfg = load_config(env={})
     if turns is not None:
@@ -119,6 +132,7 @@ def make(engine=None, speaker=None, turns=None, mode=None, delay=None, fallback=
         speaker=speaker or FakeSpeaker(),
         fallback=fallback or FakeFallback(),
         listener=FakeListener(),
+        vision=FakeVision(),
         mic_stream=MicStreams(),
     )
     app.robot = Robot(driver, cfg, app.bus)
@@ -476,7 +490,7 @@ def hands_free(mode, engine=None, speaker=None, fail=None):
     mic = MicStreams(fail)
     cfg = load_config(env={})
     cfg.vad.silence_ms, cfg.vad.min_speech_ms = 90, 60
-    app = App(cfg, engine=engine or Recorder(), speaker=speaker or FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), mic_stream=mic)
+    app = App(cfg, engine=engine or Recorder(), speaker=speaker or FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), vision=FakeVision(), mic_stream=mic)
     app.robot = Robot(NullDriver(), cfg, app.bus)
     app.robot.start()
     app.mic.segmenter = Segmenter(silence_ms=90, min_speech_ms=60, is_speech=lambda f: f == LOUD)
@@ -634,7 +648,7 @@ async def test_start_runs_mic_loop_when_configured_hands_free():
     mic = MicStreams()
     cfg = load_config(env={})
     cfg.conversation.mode = "continuous"
-    app = App(cfg, engine=Recorder(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(), cfg, EventBus()), mic_stream=mic)
+    app = App(cfg, engine=Recorder(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(), cfg, EventBus()), vision=FakeVision(), mic_stream=mic)
     await app.start()
     assert app.mic.running and app.state == "listening" and app.mic_error is None
     await app.close()
@@ -644,7 +658,7 @@ async def test_mic_error_at_start_is_kept_for_clients_that_connect_later():
     cfg = load_config(env={})
     cfg.conversation.mode = "wake"
     mic = MicStreams(OSError("PortAudio: no device"))
-    app = App(cfg, engine=Recorder(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(), cfg, EventBus()), mic_stream=mic)
+    app = App(cfg, engine=Recorder(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(), cfg, EventBus()), vision=FakeVision(), mic_stream=mic)
     await app.start()
     assert "mikrofon" in app.mic_error and cfg.conversation.mode == "ptt"
     app.ptt_start()
@@ -899,7 +913,7 @@ async def test_voice_sample_uses_the_given_voice_and_is_not_cached():
 async def test_start_greets_only_with_the_robot_connected(connected):
     cfg = load_config(env={})
     engine = FakeEngine()
-    app = App(cfg, engine=engine, speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(connected), cfg, EventBus()), mic_stream=MicStreams())
+    app = App(cfg, engine=engine, speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(connected), cfg, EventBus()), vision=FakeVision(), mic_stream=MicStreams())
     await app.start()
     await settle(app)
     assert getattr(engine, "said", []) == ([(GREETING, None)] if connected else [])
@@ -1067,3 +1081,97 @@ async def test_voice_change_restarts_phrase_generation_for_the_new_voice():
     await asyncio.sleep(0)
     assert fb.cancelled == 1 and fb.ensured == 2
     app._ensure_task.cancel()
+
+
+FACE = Face(0.0, 0.0, 0.2, 0.0)
+GREETING_PCM = b"SAY-Cze\xc5"
+
+
+def arrive(app, t):
+    """A face seen at t and still there 1.1 s later, as the tick loop would report it."""
+    app._auto_greet(t, FACE)
+    app._auto_greet(t + 1.1, FACE)
+
+
+async def test_child_who_walks_up_is_greeted_once_after_a_second():
+    engine = FakeEngine()
+    app, _ = make(engine)
+    t = time.monotonic()
+    app._auto_greet(t, FACE)
+    app._auto_greet(t + 0.5, FACE)
+    assert app._task is None  # walking past
+    app._auto_greet(t + 1.1, FACE)
+    await settle(app)
+    assert engine.said == [(GREETING, None)]
+    arrive(app, t + 30)  # left and came back within greet_cooldown_s
+    await settle(app)
+    assert app.speaker.played == [GREETING_PCM]
+
+
+async def test_child_arriving_after_the_cooldown_gets_a_fresh_conversation():
+    app, _ = make()
+    t = time.monotonic()
+    arrive(app, t)
+    await settle(app)
+    await app.handle_utterance(LONG_ENOUGH)
+    assert app.history
+    arrive(app, t + 62.1)  # nobody for 61 s
+    await settle(app)
+    assert app.speaker.played.count(GREETING_PCM) == 2 and app.history == []
+
+
+async def test_no_auto_greet_right_after_a_greeting_or_when_switched_off():
+    app, _ = make()
+    await app.greet()  # startup or "Nowa rozmowa"
+    arrive(app, time.monotonic())
+    await settle(app)
+    assert app.speaker.played == [GREETING_PCM]
+    app, _ = make()
+    app.config.camera.auto_greet = False
+    arrive(app, time.monotonic())
+    await settle(app)
+    assert app.speaker.played == []
+
+
+async def test_no_auto_greet_for_a_child_already_talking_to_the_robot():
+    speaker = FakeSpeaker(block=True)
+    app, _ = make(speaker=speaker)
+    task = app.start_turn(LONG_ENOUGH)
+    await speaker.started.wait()
+    t = time.monotonic()
+    arrive(app, t)
+    speaker.stop()
+    await asyncio.gather(task, return_exceptions=True)
+    app._auto_greet(t + 1.5, FACE)
+    await settle(app)
+    assert GREETING_PCM not in speaker.played
+
+
+async def test_auto_greet_in_wake_mode_opens_the_window_for_the_child():
+    engine = Recorder("opowiedz dowcip")
+    app, mic = hands_free("wake", engine)
+    arrive(app, time.monotonic())
+    await settle(app)
+    await mic.say()
+    await settle(app)
+    assert engine.heard == ["opowiedz dowcip"]  # no "Ohbot" needed
+
+
+async def test_auto_greet_in_ptt_mode_only_greets():
+    app, _ = make()
+    arrive(app, time.monotonic())
+    await settle(app)
+    assert app.speaker.played == [GREETING_PCM] and app._wake_until == 0.0 and app.state == "idle"
+
+
+async def test_start_runs_the_camera_and_the_tick_feeds_its_face_to_the_robot():
+    cfg = load_config(env={})
+    driver, vision = NullDriver(), FakeVision()
+    vision.face = FACE
+    app = App(cfg, engine=FakeEngine(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(driver, cfg, EventBus()), vision=vision, mic_stream=MicStreams())
+    await app.start()
+    await asyncio.sleep(0.05)
+    app.robot.flush()
+    assert vision.running and ("move", EYETURN, 5.0, 8) in driver.calls
+    await app.close()
+    assert not vision.running
