@@ -504,8 +504,8 @@ async def test_wake_window_expires(monkeypatch):
     app, mic = hands_free("wake", engine)
     await mic.say()
     await settle(app)
-    await asyncio.sleep(0.02)
-    await mic.say()
+    await asyncio.sleep(0.2)
+    await mic.say([LOUD] * 2 + [QUIET] * 3)  # 150 ms, so it started after the window closed
     await settle(app)
     assert engine.heard == []
 
@@ -603,3 +603,39 @@ async def test_mode_switch_during_stt_does_not_change_the_running_turn():
     await mic.say()
     await settle(app)
     assert engine.heard == ["raz"]
+
+
+async def test_wake_window_counts_from_when_the_child_spoke_not_after_stt(monkeypatch):
+    monkeypatch.setattr("ohbotchat.app.WAKE_WINDOW_S", 0.05)
+    engine = Recorder("Ohbot", "opowiedz dowcip")
+    orig = engine.transcribe
+
+    async def slow(pcm):
+        text = await orig(pcm)
+        if engine.transcribed == 2:
+            await asyncio.sleep(0.1)  # STT latency
+        return text
+
+    engine.transcribe = slow
+    app, mic = hands_free("wake", engine)
+    await mic.say()
+    await settle(app)
+    await mic.say()
+    await settle(app)
+    assert engine.heard == ["opowiedz dowcip"]
+
+
+@pytest.mark.parametrize("first", ["Ohbot!", "Ohbot, opowiedz bajkę"])
+async def test_wake_barge_in_opens_the_window_for_the_interruption(first):
+    speaker = FakeSpeaker(block=True)
+    engine = Recorder(first, "opowiedz dowcip")
+    app, mic = hands_free("wake", engine, speaker)
+    app.config.barge_in.enabled, app.config.barge_in.hold_ms = True, 90
+    await mic.say()
+    await speaker.started.wait()  # "Słucham?" or the reply
+    speaker.block = False
+    await mic.say(SAY[:3])  # the child talks over it
+    await asyncio.sleep(0)
+    await mic.say(SAY[3:])
+    await settle(app)
+    assert engine.heard[-1] == "opowiedz dowcip"

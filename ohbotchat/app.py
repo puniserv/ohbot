@@ -14,7 +14,8 @@ from .state import State, transition
 
 log = logging.getLogger(__name__)
 
-MIN_PCM_BYTES = 16000 * 2 * 3 // 10  # under 0.3 s is a click, not speech
+PCM_BYTES_PER_S = 16000 * 2
+MIN_PCM_BYTES = PCM_BYTES_PER_S * 3 // 10  # under 0.3 s is a click, not speech
 WAKE_WINDOW_S = 8  # after a bare "Ohbot!" the next utterance needs no wake word
 _FALLBACK_KEY = {"network": "no_network", "moderated": "moderated", "empty": "not_heard"}
 
@@ -142,6 +143,11 @@ class App:
 
     def _barge_in(self) -> None:
         self.stop(relisten=True)
+        if self.config.conversation.mode == "wake":  # talking over the robot is meant for it
+            self._open_wake_window()
+
+    def _open_wake_window(self) -> None:
+        self._wake_until = asyncio.get_running_loop().time() + WAKE_WINDOW_S
 
     def ptt_abort(self) -> None:
         """Drops a recording without a turn (client vanished while the button was held)."""
@@ -186,9 +192,11 @@ class App:
             self._act("utterance")
             if len(pcm) < MIN_PCM_BYTES:
                 raise EngineError("empty")
+            # STT latency must not eat into the wake window
+            spoke_at = asyncio.get_running_loop().time() - len(pcm) / PCM_BYTES_PER_S
             heard = await self.engine.transcribe(pcm)
             if mode == "wake":
-                heard = await self._wake(heard)
+                heard = await self._wake(heard, spoke_at)
                 if heard is None:
                     return
             await self._respond(heard)
@@ -207,10 +215,9 @@ class App:
             if self.mic.running and self.state == State.IDLE:
                 self._act("listen")
 
-    async def _wake(self, text: str) -> str | None:
+    async def _wake(self, text: str, spoke_at: float) -> str | None:
         """What to answer in wake mode, or None when the utterance was not for the robot."""
-        loop = asyncio.get_running_loop()
-        if loop.time() < self._wake_until:
+        if spoke_at < self._wake_until:
             self._wake_until = 0.0
             return text
         rest = wake_match(text, self.config.wake.words)
@@ -223,10 +230,10 @@ class App:
         self.bus.publish("reply", text=PHRASES["listening"])
         self._act("heard")
         self._act("reply")
+        self._open_wake_window()  # a barge-in cuts "Słucham?" short, so the window cannot wait for its end
         if pcm := self.fallback.get("listening"):
             await self._speak(pcm)
         self._act("done")
-        self._wake_until = loop.time() + WAKE_WINDOW_S
         return None
 
     def _ignore(self, text: str) -> None:
