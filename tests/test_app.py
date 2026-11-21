@@ -4,7 +4,7 @@ import time
 import pytest
 
 from ohbotchat.app import App
-from ohbotchat.config import Config, load_config
+from ohbotchat.config import Config
 from ohbotchat.engine import EngineError, Reply
 from ohbotchat.events import EventBus
 from ohbotchat.listen import Segmenter
@@ -121,7 +121,7 @@ class FakeVision:
 
 
 def make(engine=None, speaker=None, turns=None, mode=None, delay=None, fallback=None, cfg=None):
-    cfg = cfg or load_config(env={})
+    cfg = cfg or Config()
     if turns is not None:
         cfg.conversation.history_turns = turns
     if mode:
@@ -318,14 +318,14 @@ async def test_missing_fallback_phrases_are_retried_after_a_good_turn():
 
 
 def test_default_engine_does_not_retry_in_sdk():
-    cfg = load_config(env={})
+    cfg = Config()
     cfg.api_key = "sk-test"
     app = App(cfg, speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=object())
     assert app.engine._client.max_retries == 0
 
 
 def test_fallback_phrases_are_cached_per_tts_model_and_voice():
-    cfg = load_config(env={})
+    cfg = Config()
     cfg.openai.tts_model, cfg.openai.tts_voice = "tts-x", "ash"
     app = App(cfg, engine=FakeEngine(), speaker=FakeSpeaker(), listener=FakeListener(), robot=object())
     assert app.fallback.dir == cfg.root / "cache" / "fallback" / "tts-x-ash"
@@ -491,7 +491,7 @@ class Recorder(FakeEngine):
 
 def hands_free(mode, engine=None, speaker=None, fail=None):
     mic = MicStreams(fail)
-    cfg = load_config(env={})
+    cfg = Config()
     cfg.vad.silence_ms, cfg.vad.min_speech_ms = 90, 60
     app = App(cfg, engine=engine or Recorder(), speaker=speaker or FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), vision=FakeVision(), mic_stream=mic)
     app.robot = Robot(NullDriver(), cfg, app.bus)
@@ -649,7 +649,7 @@ async def test_mic_error_falls_back_to_ptt():
 
 async def test_start_runs_mic_loop_when_configured_hands_free():
     mic = MicStreams()
-    cfg = load_config(env={})
+    cfg = Config()
     cfg.conversation.mode = "continuous"
     app = App(cfg, engine=Recorder(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(), cfg, EventBus()), vision=FakeVision(), mic_stream=mic)
     await app.start()
@@ -658,7 +658,7 @@ async def test_start_runs_mic_loop_when_configured_hands_free():
 
 
 async def test_mic_error_at_start_is_kept_for_clients_that_connect_later():
-    cfg = load_config(env={})
+    cfg = Config()
     cfg.conversation.mode = "wake"
     mic = MicStreams(OSError("PortAudio: no device"))
     app = App(cfg, engine=Recorder(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(), cfg, EventBus()), vision=FakeVision(), mic_stream=mic)
@@ -914,7 +914,7 @@ async def test_voice_sample_uses_the_given_voice_and_is_not_cached():
 
 @pytest.mark.parametrize("connected", [True, False])
 async def test_start_greets_only_with_the_robot_connected(connected):
-    cfg = load_config(env={})
+    cfg = Config()
     engine = FakeEngine()
     app = App(cfg, engine=engine, speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(connected), cfg, EventBus()), vision=FakeVision(), mic_stream=MicStreams())
     await app.start()
@@ -1168,7 +1168,7 @@ async def test_auto_greet_in_ptt_mode_only_greets():
 
 
 async def test_start_runs_the_camera_and_the_tick_feeds_its_face_to_the_robot():
-    cfg = load_config(env={})
+    cfg = Config()
     driver, vision = NullDriver(), FakeVision()
     vision.face = Face(0.5, 0.0, time.monotonic())
     app = App(cfg, engine=FakeEngine(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(driver, cfg, EventBus()), vision=vision, mic_stream=MicStreams())
@@ -1181,7 +1181,7 @@ async def test_start_runs_the_camera_and_the_tick_feeds_its_face_to_the_robot():
 
 
 async def test_a_stale_face_from_a_hung_camera_is_not_tracked():
-    cfg = load_config(env={})
+    cfg = Config()
     driver, vision = NullDriver(), FakeVision()
     vision.face = Face(0.5, 0.0, time.monotonic() - 2)  # cap.read() hung after this frame
     app = App(cfg, engine=FakeEngine(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(driver, cfg, EventBus()), vision=vision, mic_stream=MicStreams())

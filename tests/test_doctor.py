@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 import httpx2
 import openai
 
-from ohbotchat.config import load_config
+from ohbotchat.config import Config
 from ohbotchat.doctor import run_doctor
 from ohbotchat.robot import NullDriver
 
@@ -26,7 +26,7 @@ class Page:
 
 class FakeClient:
     def __init__(self, models=None, models_error=None, chat_error=None):
-        cfg = load_config(env={}).openai
+        cfg = Config().openai
         self.ids = models if models is not None else [cfg.stt_model, cfg.chat_model, cfg.tts_model, cfg.moderation_model]
         self.models_error, self.chat_error, self.chat_calls = models_error, chat_error, []
         self.models = NS(list=self._list)
@@ -59,7 +59,7 @@ def mic(interactive):
 
 
 def cfg_with_key():
-    cfg = load_config(env={})
+    cfg = Config()
     cfg.api_key = "sk-test"
     return cfg
 
@@ -93,7 +93,7 @@ async def test_interactive_runs_speaker_and_robot_motion():
 
 
 async def test_missing_key_reports_with_hint_and_no_crash():
-    cfg = load_config(env={})
+    cfg = Config()
     cfg.api_key = None  # the repo may hold a real .env
     res = await run(None, cfg=cfg, driver=NullDriver(connected=False))
     assert [r.ok for r in res][:5] == [False] * 5

@@ -1,6 +1,6 @@
 import pytest
 
-from ohbotchat.config import load_config
+from ohbotchat.config import Config
 from ohbotchat.events import EventBus
 from ohbotchat.listen import FRAME_BYTES, Listener, Segmenter, wake_match
 
@@ -61,7 +61,7 @@ def test_segmenter_rejects_wrong_frame_size():
     ],
 )
 def test_wake_match(text, expected):
-    assert wake_match(text, load_config(env={}).wake.words) == expected
+    assert wake_match(text, Config().wake.words) == expected
 
 
 class FakeStream:
@@ -85,7 +85,7 @@ def test_ptt_collects_frames_between_start_and_stop():
         streams.append(FakeStream(cb))
         return streams[-1]
 
-    lis = Listener(load_config(env={}), EventBus(), factory)
+    lis = Listener(Config(), EventBus(), factory)
     lis.start_ptt()
     streams[0].cb(b"ab")
     streams[0].cb(b"cd")
@@ -96,7 +96,7 @@ def test_ptt_collects_frames_between_start_and_stop():
 
 def test_ptt_frames_after_stop_are_dropped():
     streams = []
-    lis = Listener(load_config(env={}), EventBus(), lambda cb: streams.append(FakeStream(cb)) or streams[-1])
+    lis = Listener(Config(), EventBus(), lambda cb: streams.append(FakeStream(cb)) or streams[-1])
     lis.start_ptt()
     lis.stop_ptt()
     streams[0].cb(b"late")
@@ -106,7 +106,7 @@ def test_ptt_frames_after_stop_are_dropped():
 
 def test_start_ptt_twice_keeps_first_recording():
     streams = []
-    lis = Listener(load_config(env={}), EventBus(), lambda cb: streams.append(FakeStream(cb)) or streams[-1])
+    lis = Listener(Config(), EventBus(), lambda cb: streams.append(FakeStream(cb)) or streams[-1])
     lis.start_ptt()
     streams[0].cb(b"ab")
     lis.start_ptt()  # key auto-repeat
@@ -118,7 +118,7 @@ def test_ptt_publishes_level_for_the_meter():
     streams, bus = [], EventBus()
     q = []
     bus._deliver = q.append  # no loop needed to observe what is published
-    lis = Listener(load_config(env={}), bus, lambda cb: streams.append(FakeStream(cb)) or streams[-1])
+    lis = Listener(Config(), bus, lambda cb: streams.append(FakeStream(cb)) or streams[-1])
     lis.start_ptt()
     for _ in range(3):
         streams[0].cb(b"\x00\x40" * 480)
@@ -133,7 +133,7 @@ def test_start_ptt_failure_closes_the_stream_and_allows_a_retry():
         def start(self):
             raise OSError("no input device")
 
-    lis = Listener(load_config(env={}), EventBus(), lambda cb: streams.append(Broken(cb)) or streams[-1])
+    lis = Listener(Config(), EventBus(), lambda cb: streams.append(Broken(cb)) or streams[-1])
     with pytest.raises(OSError):
         lis.start_ptt()
     assert not lis.recording and streams[0].log == ["close"]

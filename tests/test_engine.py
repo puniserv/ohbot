@@ -4,7 +4,7 @@ import httpx2
 import openai
 import pytest
 
-from ohbotchat.config import load_config
+from ohbotchat.config import Config
 from ohbotchat.engine import EngineError
 from ohbotchat.engine_chain import ChainEngine
 from ohbotchat.events import EventBus
@@ -47,7 +47,7 @@ class FakeClient:
 
 
 def make(client):
-    cfg = load_config(env={})
+    cfg = Config()
     bus = EventBus()
     return ChainEngine(client, cfg, bus), bus
 
@@ -219,7 +219,7 @@ async def test_unknown_gesture_becomes_none():
     assert (reply.text, reply.gesture) == ("Hej", "none")
 
 
-@pytest.mark.parametrize("persona", sorted(p.stem for p in (load_config(env={}).root / "personas").glob("*.md")))
+@pytest.mark.parametrize("persona", sorted(p.stem for p in (Config().root / "personas").glob("*.md")))
 async def test_every_persona_starts_with_the_child_safety_preamble(persona):
     from ohbotchat.engine_chain import SAFETY
 

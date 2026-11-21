@@ -26,7 +26,7 @@ def test_dotenv_key(tmp_path):
 
 
 def test_repo_config_toml_loads():
-    cfg = load_config(env={})
+    cfg = Config()
     assert cfg.openai.max_tokens == 200
     assert cfg.colours.listening == [0, 10, 0]
     assert "ohbot" in cfg.wake.words
@@ -198,7 +198,7 @@ def test_save_settings_replaces_only_known_lines_and_keeps_comments(tmp_path):
 def test_editable_settings_reads_current_values():
     from ohbotchat.config import EDITABLE, editable_settings
 
-    cfg = load_config(env={})
+    cfg = Config()
     values = editable_settings(cfg)
     assert set(values) == set(EDITABLE) and values["conversation"]["greeting"] == cfg.conversation.greeting
     assert values["conversation"]["fillers"] is True

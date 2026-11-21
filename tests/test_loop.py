@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from ohbotchat.config import load_config
+from ohbotchat.config import Config
 from ohbotchat.events import EventBus
 from ohbotchat.listen import FRAME_BYTES, Segmenter
 from ohbotchat.loop import MicLoop
@@ -31,7 +31,7 @@ class FakeStream:
 
 class Rig:
     def __init__(self, fail=None):
-        self.cfg = load_config(env={})
+        self.cfg = Config()
         self.cfg.vad.silence_ms, self.cfg.vad.min_speech_ms = 90, 60
         self.cfg.barge_in.threshold, self.cfg.barge_in.hold_ms = 0.15, 90
         self.bus = EventBus()
