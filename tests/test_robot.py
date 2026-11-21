@@ -21,6 +21,7 @@ from ohbotchat.robot import (
     NullDriver,
     OhbotDriver,
     Robot,
+    pursue,
 )
 from ohbotchat.state import State
 from ohbotchat.vision import Face
@@ -67,14 +68,21 @@ def test_blink_only_when_idle():
     assert LIDBLINK in motors(driver)
 
 
-def test_glance_recentres_later():
+def test_glance_glides_away_and_back():
     robot, driver, _ = make()
     robot.set_state(State.LISTENING)  # keep tick() from glancing again
+    robot._rng = NS(uniform=lambda lo, hi: hi)
     robot.glance(now=0)
+    for i in range(20):
+        robot.tick(0.1 * i)
     robot.tick(10)
+    for i in range(20):
+        robot.tick(10 + 0.1 * i)
     robot.flush()
-    moves = [c for c in driver.calls if c[0] == "move" and c[1] in (HEADTURN, EYETURN)]
-    assert moves[-2:] == [("move", HEADTURN, 5, 3), ("move", EYETURN, 5, 5)]
+    head = [c[2] for c in driver.calls if c[:2] == ("move", HEADTURN)]
+    assert len(head) > 4 and head[-1] == 5
+    assert all(abs(b - a) <= 0.4 + 1e-9 for a, b in zip([5.0, *head], head))
+    assert [c for c in driver.calls if c[:2] == ("move", EYETURN)][-1][2] == 5
 
 
 def test_lips_mapped_and_inverted():
@@ -183,12 +191,13 @@ def test_calls_after_close_are_dropped_silently():
     robot.set_state(State.LISTENING)
 
 
+# with gesture_step_s=0 each step is one frame; motors already in place are not sent, and the end eases back to rest
 GESTURE_EXPECTED = {
-    "yes": [(HEADNOD, 7), (HEADNOD, 3), (HEADNOD, 7), (HEADNOD, 3)],
-    "no": [(HEADTURN, 3), (HEADTURN, 7), (HEADTURN, 3), (HEADTURN, 7)],
-    "surprised": [(LIDBLINK, 10), (HEADNOD, 7)],
-    "happy": [(HEADNOD, 6), (HEADTURN, 6), "flash", (HEADTURN, 4)],
-    "thinking": [(EYETILT, 8), (EYETURN, 7)],
+    "yes": [(HEADNOD, 7), (HEADNOD, 3), (HEADNOD, 7), (HEADNOD, 3), (HEADNOD, 5)],
+    "no": [(HEADTURN, 3), (HEADTURN, 7), (HEADTURN, 3), (HEADTURN, 7), (HEADTURN, 5)],
+    "surprised": [(HEADNOD, 7), (HEADNOD, 5)],
+    "happy": ["flash", (HEADNOD, 6), (HEADTURN, 6), (HEADTURN, 4), (HEADNOD, 5), (HEADTURN, 5)],
+    "thinking": [(EYETILT, 8), (EYETURN, 7), (EYETURN, 5), (EYETILT, 5)],
 }
 
 
@@ -210,7 +219,18 @@ async def test_gesture_driver_sequence_ends_in_neutral(name, monkeypatch):
     driver.calls.clear()
     await robot.gesture(name)
     robot.flush()
-    assert driver.calls == _gesture_calls(GESTURE_EXPECTED[name]) + NEUTRAL_CALLS + [("eye", *cfg.colours.speaking)]
+    assert driver.calls == _gesture_calls(GESTURE_EXPECTED[name]) + [("eye", *cfg.colours.speaking)]
+
+
+async def test_gesture_steps_are_eased_in_frames():
+    robot, driver, _ = make(gesture_step_s=0.2)
+    await robot.gesture("yes")
+    robot.flush()
+    nod = [c[2] for c in driver.calls if c[:2] == ("move", HEADNOD)]
+    assert len(nod) == 5 * 4  # 5 steps (4 + back to rest), 0.2 s / 0.05 s frames
+    assert nod[3] == 7 and nod[-1] == 5
+    first = [b - a for a, b in zip([5.0, *nod[:4]], nod[:4])]
+    assert first[0] < first[1] and first[3] < first[2]  # slow in, slow out
 
 
 @pytest.mark.parametrize("name", [None, "none", "dance"])
@@ -232,7 +252,10 @@ async def test_cancelled_gesture_stops_and_returns_to_neutral():
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     robot.flush()
-    assert driver.calls == [("move", HEADNOD, 7, GESTURE_SPEED)] + NEUTRAL_CALLS + [("eye", *cfg.colours.idle)]
+    first, back = [c for c in driver.calls if c[0] == "move"]
+    assert first[:2] == ("move", HEADNOD) and 5 < first[2] < 5.01 and first[3] == GESTURE_SPEED
+    assert back == ("move", HEADNOD, 5, cfg.robot.head_speed)  # cut short: glides back at the slow head speed
+    assert driver.calls[-1] == ("eye", *cfg.colours.idle)
 
 
 async def test_gesture_scale_shrinks_moves_around_rest_and_clamps():
@@ -290,7 +313,8 @@ def test_manual_move_cancels_a_pending_glance_recentre():
     robot.glance(now=0)
     robot.move(HEADTURN, 2)
     robot.hold_idle = True
-    robot.tick(10)
+    for i in range(30):
+        robot.tick(10 + 0.1 * i)
     robot.flush()
     assert [c for c in driver.calls if c[:2] == ("move", HEADTURN)][-1] == ("move", HEADTURN, 2, 10)
 
@@ -314,32 +338,50 @@ def moves(driver):
     return [c for c in driver.calls if c[0] == "move" and c[1] != LIDBLINK]
 
 
-def test_eyes_and_head_turn_to_the_face_eyes_faster():
-    robot, driver, _ = make()
+def test_pursue_closes_part_of_the_gap_within_min_and_max_step():
+    assert pursue(5, 8, 0.5, 1.0) == 6  # half of 3 capped at 1
+    assert pursue(5, 6, 0.3, 1.0) == 5.3
+    assert pursue(5, 5.5, 0.1, 1.0) == 5.2  # never slower than MIN_STEP
+    assert pursue(5, 4.9, 0.5, 1.0) == 4.9  # the last bit snaps onto the goal
+    assert pursue(5, 2, 0.5, 0.4) == 4.6
+
+
+def track(robot, x, y=0.0, t0=100.0, ticks=30):
+    for i in range(ticks):
+        robot.tick(t0 + 0.1 * i, face(x, y))
+    robot.flush()
+
+
+def positions(driver, motor):
+    return [c[2] for c in driver.calls if c[:2] == ("move", motor)]
+
+
+def test_head_pursues_the_face_capped_and_eyes_lead():
+    robot, driver, cfg = make()
     robot.set_state(State.SPEAKING)  # tracking runs in every state; SPEAKING keeps blinks out of the way
     robot.tick(100, face(0.5, -0.25))
     robot.flush()
-    assert moves(driver) == [
-        ("move", EYETURN, 7.0, 8),
-        ("move", EYETILT, 4.0, 8),
-        ("move", HEADTURN, 6.5, 3),
-        ("move", HEADNOD, 4.25, 3),
-    ]
+    first = {c[1]: c[2:] for c in moves(driver)}
+    assert first[HEADTURN] == (5.4, cfg.robot.head_speed)  # 1.5 away, capped at head_max_step 0.4
+    assert first[EYETURN][1] == robot_mod.EYE_SPEED and first[EYETURN][0] - 5 > 0.4  # eyes start faster
+    track(robot, 0.5, -0.25, t0=100.1)
+    head = positions(driver, HEADTURN)
+    assert head[-1] == 6.5 and positions(driver, EYETURN)[-1] == 7.0
+    assert positions(driver, HEADNOD)[-1] == 4.25 and positions(driver, EYETILT)[-1] == 4.0
+    assert all(0 < b - a <= cfg.robot.head_max_step + 1e-9 for a, b in zip([5.0, *head], head))
 
 
-def test_small_changes_are_not_sent_and_the_head_waits_for_the_deadband():
+def test_settled_head_ignores_jitter_inside_the_deadband_and_stops_sending():
     robot, driver, _ = make()
     robot.set_state(State.SPEAKING)
-    robot.tick(100, face(0.5))
-    robot.flush()
+    track(robot, 0.5)
     driver.calls.clear()
-    robot.tick(100.1, face(0.53))  # eyes +0.12, head +0.09: both under 0.2
-    robot.tick(100.2, face(0.625))  # eyes +0.5 move; head +0.375 stays inside the 0.5 deadband
-    robot.flush()
-    assert moves(driver) == [("move", EYETURN, 7.5, 8)]
-    robot.tick(100.3, face(0.75))
-    robot.flush()
-    assert moves(driver)[-2:] == [("move", EYETURN, 8.0, 8), ("move", HEADTURN, 7.25, 3)]
+    track(robot, 0.5, t0=110)
+    assert moves(driver) == []  # settled: nothing more on the serial link
+    track(robot, 0.6, t0=120)  # head +0.3 stays inside the 0.5 deadband, eyes +0.4 follow
+    assert positions(driver, HEADTURN) == [] and positions(driver, EYETURN)[-1] == 7.4
+    track(robot, 0.75, t0=130)  # head target 7.25: off by 0.75, so it glides all the way there
+    assert positions(driver, HEADTURN)[-1] == 7.25
 
 
 async def test_a_running_gesture_owns_the_head_then_tracking_resends():
@@ -357,13 +399,9 @@ async def test_a_running_gesture_owns_the_head_then_tracking_resends():
     await asyncio.gather(task, return_exceptions=True)
     robot.tick(100.2, face(0.5))
     robot.flush()
-    # unchanged targets are sent again, because the gesture's neutral pose moved the motors
-    assert moves(driver)[-4:] == [
-        ("move", EYETURN, 7.0, 8),
-        ("move", EYETILT, 5.0, 8),
-        ("move", HEADTURN, 6.5, 3),
-        ("move", HEADNOD, 5.0, 3),
-    ]
+    track(robot, 0.5, t0=100.3)
+    # the gesture's neutral pose moved the motors, so tracking pursues the face again
+    assert positions(driver, HEADTURN)[-1] == 6.5 and positions(driver, EYETURN)[-1] == 7.0
 
 
 def test_test_panel_and_manual_moves_pause_tracking():
@@ -381,9 +419,8 @@ def test_test_panel_and_manual_moves_pause_tracking():
     robot.tick(now, face(0.5))
     robot.flush()
     assert moves(driver) == []
-    robot.tick(now + robot_mod.MANUAL_PAUSE_S + 1, face(0.5))
-    robot.flush()
-    assert ("move", HEADTURN, 6.5, 3) in driver.calls
+    track(robot, 0.5, t0=now + robot_mod.MANUAL_PAUSE_S + 1, ticks=40)
+    assert positions(driver, HEADTURN)[0] == 2.4 and positions(driver, HEADTURN)[-1] == 6.5
 
 
 def test_idle_tracking_keeps_blinking_but_does_not_glance_while_a_face_was_seen_recently():
@@ -391,19 +428,19 @@ def test_idle_tracking_keeps_blinking_but_does_not_glance_while_a_face_was_seen_
     robot.tick(100, face(0.5))
     robot.tick(100 + cfg.camera.lost_after_s - 0.5, None)  # a missed detection, not yet lost
     robot.flush()
-    assert ("move", EYETURN, 7.0, 8) in driver.calls and LIDBLINK in motors(driver)
-    assert not [c for c in moves(driver) if c[1] == EYETURN and c[3] == 5]  # a glance moves the eyes at speed 5
+    assert positions(driver, EYETURN) and LIDBLINK in motors(driver)
+    assert robot._goal[EYETURN] == 7.0  # a glance would have moved the goal
 
 
 def test_lost_face_recentres_once_then_glances_resume():
     robot, driver, cfg = make()
-    robot.tick(100, face(0.5))
+    robot.set_state(State.LISTENING)  # no glance yet
+    track(robot, 0.5, 0.5)
+    lost = 100 + 3 + cfg.camera.lost_after_s
+    for i in range(30):
+        robot.tick(lost + 0.1 * i, None)
     robot.flush()
-    driver.calls.clear()
-    lost = 100 + cfg.camera.lost_after_s
-    robot.tick(lost, None)
-    robot.tick(lost + 0.1, None)
-    robot.flush()
-    m = moves(driver)
-    assert m[:4] == [("move", HEADTURN, 5, 3), ("move", HEADNOD, 5, 3), ("move", EYETURN, 5, 8), ("move", EYETILT, 5, 8)]
-    assert len(m) == 6 and m[5][1] == EYETURN and m[5][3] == 5  # then one glance
+    assert [positions(driver, m)[-1] for m in (HEADTURN, HEADNOD, EYETURN, EYETILT)] == [5, 5, 5, 5]
+    robot.set_state(State.IDLE)
+    robot.tick(lost + 10, None)
+    assert robot._recentre_at is not None  # then a glance

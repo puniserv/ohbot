@@ -860,7 +860,7 @@ async def test_close_lets_the_leftover_gesture_reach_neutral():
     await app.handle_utterance(LONG_ENOUGH)
     await asyncio.sleep(0)
     await app.close()
-    assert ("move", HEADNOD, 5, app.config.robot.gesture_speed) in driver.calls
+    assert ("move", HEADNOD, 5, app.config.robot.head_speed) in driver.calls
     assert driver.closed
 
 
@@ -1167,12 +1167,12 @@ async def test_auto_greet_in_ptt_mode_only_greets():
 async def test_start_runs_the_camera_and_the_tick_feeds_its_face_to_the_robot():
     cfg = load_config(env={})
     driver, vision = NullDriver(), FakeVision()
-    vision.face = Face(0.0, 0.0, time.monotonic())
+    vision.face = Face(0.5, 0.0, time.monotonic())
     app = App(cfg, engine=FakeEngine(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(driver, cfg, EventBus()), vision=vision, mic_stream=MicStreams())
     await app.start()
     await asyncio.sleep(0.05)
     app.robot.flush()
-    assert vision.running and ("move", EYETURN, 5.0, 8) in driver.calls
+    assert vision.running and [c for c in driver.calls if c[:2] == ("move", EYETURN)]
     await app.close()
     assert not vision.running
 

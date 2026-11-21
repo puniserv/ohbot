@@ -37,8 +37,7 @@ normalised face position. State this in docs and in the README/windows.md camera
 - **Mapping (pure functions, in vision.py or robot.py)**
   - Target eye position = 5 + x · `eye_gain`, head position = 5 + x · `head_gain` (same for y with EYETILT/HEADNOD),
     clamped 0..10.
-  - Deadband: the head moves only when the target differs from the current head position by more than `deadband`.
-    Eyes follow every frame.
+  - Pursuit: every tick head and eyes step towards their target (`robot.head_rate`/`eye_rate` of the gap, at least 0.2, the head at most `robot.head_max_step` at servo speed `robot.head_speed`). Deadband: a settled head starts moving only when the target is more than `deadband` away, then glides all the way. Glance, recentre and the lost-face return use the same pursuit; gesture steps are eased through 0.05 s points.
   - Smoothing: exponential moving average on x, y (`smoothing` 0..1).
   - Eyes move fast (speed ~8), head slower (speed ~3), so eyes lead and the head follows, as people do.
 - **Robot integration (robot.py tick)**

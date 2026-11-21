@@ -22,8 +22,12 @@ _COLOUR_KEY = {
 }
 RETRY_S = 5.0
 MANUAL_PAUSE_S = 5.0  # a blink or glance right after a manual move would undo what the operator is looking at
-EYE_SPEED, HEAD_SPEED = 8, 3  # eyes lead and the head follows, as people do
-MIN_STEP = 0.2  # smaller tracking moves are detector noise and would flood the serial link
+EYE_SPEED = 8  # eyes lead and the head follows ([robot] head_speed), as people do
+EYE_MAX_STEP = 2.0
+MIN_STEP = 0.2  # smaller pursuit steps are detector noise and would flood the serial link
+GESTURE_FRAME_S = 0.05  # gesture steps are eased through points this far apart, so the servo never jumps a whole step
+GLANCE_S = 1.5  # the gliding head needs most of a second to get there
+_HEAD = (HEADTURN, HEADNOD)
 
 GESTURE_FLASH = (10, 10, 0)
 _NEUTRAL = ((HEADNOD, 5), (HEADTURN, 5), (EYETURN, 5), (EYETILT, 5), (LIDBLINK, 10))
@@ -37,6 +41,18 @@ _GESTURES = {
     "happy": [[(HEADNOD, 6), (HEADTURN, 6), "flash"], [(HEADTURN, 4)]],
     "thinking": [[(EYETILT, 8), (EYETURN, 7)], [], [], []],
 }
+
+
+def pursue(at: float, goal: float, rate: float, max_step: float) -> float:
+    """One tick towards `goal`: `rate` of the gap, at least MIN_STEP, at most `max_step`; the last bit snaps onto it."""
+    gap = goal - at
+    if abs(gap) <= MIN_STEP:
+        return goal
+    return at + math.copysign(min(max_step, max(MIN_STEP, abs(gap) * rate)), gap)
+
+
+def _ease(k: float) -> float:
+    return k * k * (3 - 2 * k)
 
 
 class RobotDriver(Protocol):
@@ -133,7 +149,9 @@ class Robot:
         self._connecting = False
         self._closed = False
         self._seen_at = -math.inf
-        self._pos: dict[int, float] = {}  # last tracking position sent per motor; any other move clears it
+        self._at: dict[int, float] = {}  # last position sent per motor, recorded when queued
+        self._goal: dict[int, float] = {}  # where tick() glides the head and eyes
+        self._moving: set[int] = set()  # once the head leaves its deadband it glides all the way to the goal
         self._tracked = False
         self._gesturing = 0
         self.manual_pos: dict[int, float] = {}  # slider positions, read by App.calibrate
@@ -197,13 +215,18 @@ class Robot:
     def pause_idle(self) -> None:
         self._idle_after = time.monotonic() + MANUAL_PAUSE_S
         self._recentre_at = None
-        self._pos.clear()
+        self._goal.clear()
+        self._moving.clear()
+
+    def _move(self, motor: int, pos: float, speed: int) -> None:
+        self._at[motor] = pos
+        self._submit(self._driver.move, motor, pos, speed)
 
     def move(self, motor: int, pos: float) -> None:
         """Raw motor position for the test panel: no lip inversion."""
         self.pause_idle()
         self.manual_pos[motor] = pos = min(10, max(0, pos))
-        self._submit(self._driver.move, motor, pos, 10)
+        self._move(motor, pos, 10)
 
     def close_mouth(self) -> None:
         self.pause_idle()
@@ -212,7 +235,8 @@ class Robot:
 
     def neutral(self) -> None:
         self.manual_pos.clear()
-        self._submit(self._gesture_step, _NEUTRAL)
+        for motor, pos in _NEUTRAL:
+            self._move(motor, pos, self._cfg.robot.gesture_speed)
         self.close_mouth()
 
     def blink(self) -> None:
@@ -223,16 +247,25 @@ class Robot:
 
         self._submit(run)
 
-    def _gesture_step(self, step: list) -> None:
+    async def _ease_step(self, step: list) -> None:
+        """Glides from the last sent positions to the step's in frames with slow-in/slow-out, over gesture_step_s."""
         r = self._cfg.robot
+        goal = {}
         for move in step:
             if move == "flash":
-                self._driver.eye_colour(*GESTURE_FLASH)
+                self._submit(self._driver.eye_colour, *GESTURE_FLASH)
             else:
                 motor, pos = move
                 rest = _REST[motor]
-                pos = min(10, max(0, rest + (pos - rest) * r.gesture_scale))
-                self._driver.move(motor, pos, r.gesture_speed)
+                goal[motor] = min(10, max(0, rest + (pos - rest) * r.gesture_scale))
+        start = {m: self._at.get(m, _REST[m]) for m in goal}
+        frames = max(1, round(r.gesture_step_s / GESTURE_FRAME_S))
+        for i in range(1, frames + 1):
+            k = _ease(i / frames)
+            for motor, pos in goal.items():
+                if start[motor] != pos:
+                    self._move(motor, start[motor] * (1 - k) + pos * k, r.gesture_speed)
+            await asyncio.sleep(r.gesture_step_s / frames)
 
     async def gesture(self, name: str | None) -> None:
         """Sleeps on the event loop, not the worker thread, so lip moves keep flowing; cancel it to cut it short."""
@@ -241,37 +274,41 @@ class Robot:
             return
         self._gesturing += 1  # a count, because a manual gesture can start before the cancelled one's finally ran
         try:
-            for step in steps:
-                self._submit(self._gesture_step, step)
-                await asyncio.sleep(self._cfg.robot.gesture_step_s)
+            for step in [*steps, _NEUTRAL]:
+                await self._ease_step(step)
         finally:
             self._gesturing -= 1
-            self._pos.clear()
-            self._submit(self._gesture_step, _NEUTRAL)
+            # a cancelled gesture cannot await its eased return, so the servos glide back at the slow head speed
+            for motor, pos in _NEUTRAL:
+                if self._at.get(motor, _REST[motor]) != pos:
+                    self._move(motor, pos, self._cfg.robot.head_speed)
             self._submit(self._apply_colour)
 
     def glance(self, now: float) -> None:
-        self._pos.clear()
-        self._submit(self._driver.move, HEADTURN, self._rng.uniform(3, 7), 3)
-        self._submit(self._driver.move, EYETURN, self._rng.uniform(3, 7), 5)
-        self._recentre_at = now + 1.0
-
-    def _send(self, motor: int, pos: float, speed: int, step: float) -> None:
-        last = self._pos.get(motor)
-        if last is not None and abs(pos - last) < step:
-            return
-        self._pos[motor] = pos
-        self._submit(self._driver.move, motor, pos, speed)
+        self._goal[HEADTURN] = self._rng.uniform(3, 7)
+        self._goal[EYETURN] = self._rng.uniform(3, 7)
+        self._recentre_at = now + GLANCE_S
 
     def _track(self, face: Face) -> None:
         c = self._cfg.camera
-        head_step = max(c.deadband, MIN_STEP)
         self._recentre_at = None  # a glance's recentre would yank the head off the face
-        self._send(EYETURN, motor_target(face.x, c.eye_gain), EYE_SPEED, MIN_STEP)
-        self._send(EYETILT, motor_target(face.y, c.eye_gain), EYE_SPEED, MIN_STEP)
-        self._send(HEADTURN, motor_target(face.x, c.head_gain), HEAD_SPEED, head_step)
-        self._send(HEADNOD, motor_target(face.y, c.head_gain), HEAD_SPEED, head_step)
+        self._goal[EYETURN] = motor_target(face.x, c.eye_gain)
+        self._goal[EYETILT] = motor_target(face.y, c.eye_gain)
+        self._goal[HEADTURN] = motor_target(face.x, c.head_gain)
+        self._goal[HEADNOD] = motor_target(face.y, c.head_gain)
         self._tracked = True
+
+    def _pursue(self) -> None:
+        r = self._cfg.robot
+        for motor, goal in self._goal.items():
+            head = motor in _HEAD
+            at = self._at.get(motor, _REST[motor])
+            band = self._cfg.camera.deadband if head else MIN_STEP
+            if at == goal or (motor not in self._moving and abs(goal - at) <= band):
+                continue
+            pos = pursue(at, goal, r.head_rate if head else r.eye_rate, r.head_max_step if head else EYE_MAX_STEP)
+            (self._moving.discard if pos == goal else self._moving.add)(motor)
+            self._move(motor, pos, r.head_speed if head else EYE_SPEED)
 
     def tick(self, now: float, face: Face | None = None) -> None:
         if not self._connected:
@@ -284,9 +321,7 @@ class Robot:
             self._seen_at = now
         if self._recentre_at is not None and now >= self._recentre_at:
             self._recentre_at = None
-            self._pos.clear()
-            self._submit(self._driver.move, HEADTURN, 5, 3)
-            self._submit(self._driver.move, EYETURN, 5, 5)
+            self._goal[HEADTURN] = self._goal[EYETURN] = 5
         if self.hold_idle or now < self._idle_after or self._gesturing:
             return
         lost = now - self._seen_at >= self._cfg.camera.lost_after_s
@@ -294,9 +329,9 @@ class Robot:
             self._track(face)
         elif lost and self._tracked:
             self._tracked = False
-            self._pos.clear()
-            for motor, speed in ((HEADTURN, HEAD_SPEED), (HEADNOD, HEAD_SPEED), (EYETURN, EYE_SPEED), (EYETILT, EYE_SPEED)):
-                self._submit(self._driver.move, motor, 5, speed)
+            for motor in (HEADTURN, HEADNOD, EYETURN, EYETILT):
+                self._goal[motor] = 5
+        self._pursue()
         if self._state != State.IDLE:
             return
         if now >= self._next_blink:

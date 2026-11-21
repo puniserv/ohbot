@@ -83,6 +83,11 @@ class RobotConfig:
     gesture_step_s: float = 0.25
     gesture_speed: int = 8
     gesture_scale: float = 1.0  # amplitude around the rest pose
+    # head and eyes glide to their target each tick: rate = share of the gap, max_step = cap per 0.1 s tick
+    head_rate: float = 0.3
+    head_max_step: float = 0.4
+    head_speed: int = 3  # servo speed of those small steps; too fast and the head stutters at 10 Hz
+    eye_rate: float = 0.6
 
 
 @dataclass
@@ -193,6 +198,10 @@ EDITABLE = {
         "gesture_step_s": _number(float, 0.05, 2),
         "gesture_speed": _number(int, 1, 10),
         "gesture_scale": _number(float, 0.5, 1.5),
+        "head_rate": _number(float, 0.05, 1),
+        "head_max_step": _number(float, 0.05, 3),
+        "head_speed": _number(int, 1, 10),
+        "eye_rate": _number(float, 0.05, 1),
     },
     "openai": {"tts_voice": _voice},
     "barge_in": {"threshold": _number(float, 0, 1)},

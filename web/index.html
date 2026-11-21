@@ -54,6 +54,13 @@
     <label>Szybkość <input type="range" data-key="robot.gesture_speed" min="1" max="10" step="1"><output></output></label>
     <label>Zakres ruchu <input type="range" data-key="robot.gesture_scale" min="0.5" max="1.5" step="0.05"><output></output></label>
   </fieldset>
+  <fieldset><legend>Płynność ruchu</legend>
+    <p class="note">Głowa i oczy co 0,1 s pokonują część drogi do celu. Mniejsze wartości: wolniej i płynniej.</p>
+    <label>Tempo głowy <input type="range" data-key="robot.head_rate" min="0.05" max="1" step="0.05"><output></output></label>
+    <label>Maks. krok głowy <input type="range" data-key="robot.head_max_step" min="0.05" max="3" step="0.05"><output></output></label>
+    <label>Szybkość serwa głowy <input type="range" data-key="robot.head_speed" min="1" max="10" step="1"><output></output></label>
+    <label>Tempo oczu <input type="range" data-key="robot.eye_rate" min="0.05" max="1" step="0.05"><output></output></label>
+  </fieldset>
   <fieldset><legend>Słuchanie</legend>
     <label>Próg przerywania głosem <input type="range" data-key="barge_in.threshold" min="0" max="1" step="0.01"><output></output></label>
     <label>Cisza kończąca wypowiedź (ms) <input type="number" data-key="vad.silence_ms" min="200" max="5000" step="50"></label>
@@ -73,7 +80,7 @@
     <label>Przesunięcie pionowe <input type="range" data-key="camera.offset_y" min="-1" max="1" step="0.05"><output></output></label>
     <label>Ruch głowy <input type="range" data-key="camera.head_gain" min="0" max="15" step="0.1"><output></output></label>
     <label>Ruch oczu <input type="range" data-key="camera.eye_gain" min="0" max="15" step="0.1"><output></output></label>
-    <label>Martwa strefa głowy <input type="range" data-key="camera.deadband" min="0" max="3" step="0.1"><output></output></label>
+    <label title="Drobniejsze zmiany celu głowa ignoruje">Martwa strefa głowy <input type="range" data-key="camera.deadband" min="0" max="3" step="0.1"><output></output></label>
     <label>Wygładzanie <input type="range" data-key="camera.smoothing" min="0" max="0.95" step="0.05"><output></output></label>
     <label>Pewność wykrycia <input type="range" data-key="camera.min_score" min="0.3" max="0.99" step="0.01"><output></output></label>
     <label>Brak twarzy po (s) <input type="number" data-key="camera.lost_after_s" min="0.5" max="30" step="0.5"></label>

@@ -58,11 +58,17 @@ lip_delay_ms = 0
 # Mouth closed / fully open (0-10). Lower lip_closed if the mouth stays open, raise it if the lips press.
 lip_closed = 1.5
 lip_open = 6.5
-# Each gesture step is held gesture_step_s at servo speed gesture_speed (1-10).
+# Each gesture step glides over gesture_step_s (eased in 0.05 s points) at servo speed gesture_speed (1-10).
 gesture_step_s = 0.25
 gesture_speed = 8
 # 0.5-1.5: shrinks or widens gestures around the rest pose.
 gesture_scale = 1.0
+# Head and eyes glide to their target: each 0.1 s tick covers head_rate/eye_rate of the gap, the head at most
+# head_max_step. head_speed (1-10) is the servo speed of those small steps; lower it if the head stutters.
+head_rate = 0.3
+head_max_step = 0.4
+head_speed = 3
+eye_rate = 0.6
 
 [camera]
 # Face tracking. Frames stay in the app: never saved, logged or sent anywhere.
@@ -77,7 +83,7 @@ offset_y = 0.0
 # How far head and eyes turn for a face at the edge of the picture (0-15).
 head_gain = 3.0
 eye_gain = 10.0
-# The head moves only when its target is this far off; the eyes follow every frame.
+# The head ignores target changes smaller than this (detector jitter); once it moves it glides all the way.
 deadband = 0.5
 # 0 = jumpy, 0.95 = slow and smooth.
 smoothing = 0.5
