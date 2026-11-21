@@ -110,19 +110,24 @@ async def _web(port: int, on_ready) -> int:
     server = uvicorn.Server(server_config(create_app(app), port))
 
     async def ready() -> None:
+        # uvicorn binds after its lifespan startup, so the robot greets and the console speaks only once the port is ours
         while not server.started:
             await asyncio.sleep(0.1)
-        on_ready(f"http://127.0.0.1:{port}/", server)
+        try:
+            await app.start()
+        except Exception:
+            log.exception("App start failed")
+            server.should_exit = True
+            return
+        url = f"http://127.0.0.1:{port}/"
+        print(f"Ohbot działa na {url} (Ctrl+C = wyjście)")
+        on_ready(url, server)
 
-    opener = None
+    opener = asyncio.create_task(ready())
     try:
-        await app.start()
-        opener = asyncio.create_task(ready())
-        print(f"Ohbot działa na http://127.0.0.1:{port}/ (Ctrl+C = wyjście)")
         await server.serve()
     finally:
-        if opener:
-            opener.cancel()
+        opener.cancel()
         await app.close()
     return 0
 

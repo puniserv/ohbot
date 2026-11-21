@@ -195,3 +195,63 @@ def test_window_that_fails_to_open_falls_back_to_the_browser(monkeypatch, caplog
     assert main(["--window"]) == 0
     assert calls == ["http://127.0.0.1:1/", "stopped"]
     assert "WebView2" in caplog.text
+
+
+class _WebApp:
+    def __init__(self, config, engine=None):
+        from ohbotchat.events import EventBus
+
+        self.config, self.bus, self.log = config, EventBus(), []
+
+    async def start(self):
+        self.log.append("start")
+
+    async def close(self):
+        self.log.append("close")
+
+
+def _web_apps(monkeypatch):
+    made = []
+
+    def make(config, engine=None):
+        made.append(_WebApp(config, engine))
+        return made[-1]
+
+    monkeypatch.setattr("ohbotchat.app.App", make)
+    return made
+
+
+async def test_web_on_a_busy_port_neither_starts_the_robot_nor_claims_to_run(monkeypatch, capsys):
+    import socket
+
+    import pytest
+
+    from ohbotchat.__main__ import _web
+
+    made = _web_apps(monkeypatch)
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen()
+        with pytest.raises(SystemExit):
+            await _web(busy.getsockname()[1], lambda url, server: pytest.fail("opened the page"))
+    assert "start" not in made[0].log and "działa" not in capsys.readouterr().out
+
+
+async def test_web_starts_the_app_and_announces_only_after_binding(monkeypatch, capsys):
+    import socket
+
+    from ohbotchat.__main__ import _web
+
+    made = _web_apps(monkeypatch)
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    seen = []
+
+    def on_ready(url, server):
+        seen.append((list(made[0].log), url, server.started))
+        server.should_exit = True
+
+    assert await _web(port, on_ready) == 0
+    assert seen == [(["start"], f"http://127.0.0.1:{port}/", True)]
+    assert "działa" in capsys.readouterr().out and made[0].log[-1] == "close"
