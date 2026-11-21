@@ -295,6 +295,13 @@ def test_default_engine_does_not_retry_in_sdk():
     assert app.engine._client.max_retries == 0
 
 
+def test_fallback_phrases_are_cached_per_tts_model_and_voice():
+    cfg = load_config(env={})
+    cfg.openai.tts_model, cfg.openai.tts_voice = "tts-x", "ash"
+    app = App(cfg, engine=FakeEngine(), speaker=FakeSpeaker(), listener=FakeListener(), robot=object())
+    assert app.fallback._dir == cfg.root / "cache" / "fallback" / "tts-x-ash"
+
+
 async def test_zero_history_turns_keeps_nothing():
     app, _ = make(turns=0)
     await app.handle_utterance(LONG_ENOUGH)

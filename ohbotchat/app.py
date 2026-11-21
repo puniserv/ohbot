@@ -32,7 +32,8 @@ class App:
         self.engine = engine or self._default_engine()
         self.speaker = speaker or Speaker()
         self.robot = robot or Robot(OhbotDriver(), config, self.bus)
-        self.fallback = fallback or Fallback(config.root / "cache" / "fallback")
+        tts = f"{config.openai.tts_model}-{config.openai.tts_voice}"  # a new voice must not reuse the old recordings
+        self.fallback = fallback or Fallback(config.root / "cache" / "fallback" / tts)
         self.listener = listener or Listener(config, self.bus)
         self.mic = MicLoop(config, self.bus, lambda: self.state, self.start_turn, self._barge_in, self._mic_lost, mic_stream)
         self.state = State.IDLE
