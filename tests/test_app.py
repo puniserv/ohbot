@@ -379,12 +379,12 @@ class MicStreams:
     def __init__(self, fail=None):
         self.streams, self.fail = [], fail
 
-    def __call__(self, cb):
+    def __call__(self, cb, finished=None):
         test = self
 
         class S:
             def __init__(self):
-                self.cb, self.open = cb, False
+                self.cb, self.finished, self.open = cb, finished, False
 
             def start(self):
                 if test.fail:
@@ -586,8 +586,33 @@ async def test_start_runs_mic_loop_when_configured_hands_free():
     cfg.conversation.mode = "continuous"
     app = App(cfg, engine=Recorder(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(), cfg, EventBus()), mic_stream=mic)
     await app.start()
-    assert app.mic.running and app.state == "listening"
+    assert app.mic.running and app.state == "listening" and app.mic_error is None
     await app.close()
+
+
+async def test_mic_error_at_start_is_kept_for_clients_that_connect_later():
+    cfg = load_config(env={})
+    cfg.conversation.mode = "wake"
+    mic = MicStreams(OSError("PortAudio: no device"))
+    app = App(cfg, engine=Recorder(), speaker=FakeSpeaker(), fallback=FakeFallback(), listener=FakeListener(), robot=Robot(NullDriver(), cfg, EventBus()), mic_stream=mic)
+    await app.start()
+    assert "mikrofon" in app.mic_error and cfg.conversation.mode == "ptt"
+    app.ptt_start()
+    assert app.mic_error is None
+    await app.close()
+
+
+async def test_mic_lost_mid_session_falls_back_to_ptt():
+    app, mic = hands_free("wake")
+    q = app.bus.subscribe()
+    mic.streams[-1].finished()
+    await asyncio.sleep(0)
+    events = drain(q)
+    message = "Mikrofon odłączony – wracam do trybu z przyciskiem"
+    assert [e.data["message"] for e in events if e.type == "error"] == [message]
+    assert [e.data["mode"] for e in events if e.type == "settings"] == ["ptt"]
+    assert app.config.conversation.mode == "ptt" and app.state == "idle" and not app.mic.running
+    assert app.mic_error == message
 
 
 async def test_mode_switch_during_stt_does_not_change_the_running_turn():

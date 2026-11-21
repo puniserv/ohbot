@@ -61,6 +61,7 @@ function applySettings(s) {
   $("talk").disabled = s.mode !== "ptt"; // hands-free modes listen all the time
   if (s.mode !== "ptt") talkStop();
   if ([...$("persona").options].some((o) => o.value === s.persona)) $("persona").value = s.persona;
+  if (!s.barge_in) return; // the app's own fallback to ptt sends only the mode
   barge = s.barge_in;
   $("barge-on").checked = barge.enabled;
   $("barge-threshold").value = barge.threshold;
@@ -99,6 +100,7 @@ const handlers = {
     setState(d.state);
     setRobot(d.robot);
     $("nokey").hidden = d.has_key;
+    if (d.mic_error) toast(d.mic_error);
   },
   state: (d) => setState(d.state),
   stage: (d) => setActive(d.status === "start" ? [d.name] : []),

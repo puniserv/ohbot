@@ -76,6 +76,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             "robot": app.robot.connected,
             "has_key": bool(cfg.api_key),
             "colours": asdict(cfg.colours),
+            "mic_error": app.mic_error,
             **settings(),
         }
 

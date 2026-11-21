@@ -14,8 +14,8 @@ QUIET = b"\x00\x00" * (FRAME_BYTES // 2)
 
 
 class FakeStream:
-    def __init__(self, cb, fail=None):
-        self.cb, self.fail, self.log = cb, fail, []
+    def __init__(self, cb, fail=None, finished=None):
+        self.cb, self.fail, self.log, self.finished = cb, fail, [], finished
 
     def start(self):
         if self.fail:
@@ -36,17 +36,20 @@ class Rig:
         self.cfg.barge_in.threshold, self.cfg.barge_in.hold_ms = 0.15, 90
         self.bus = EventBus()
         self.state = State.LISTENING
-        self.utterances, self.barges, self.streams = [], 0, []
+        self.utterances, self.barges, self.streams, self.lost = [], 0, [], 0
 
-        def factory(cb):
-            self.streams.append(FakeStream(cb, fail))
+        def factory(cb, finished=None):
+            self.streams.append(FakeStream(cb, fail, finished))
             return self.streams[-1]
 
         def barge():
             self.barges += 1
             self.state = State.LISTENING
 
-        self.mic = MicLoop(self.cfg, self.bus, lambda: self.state, self.utterances.append, barge, factory)
+        def lost():
+            self.lost += 1
+
+        self.mic = MicLoop(self.cfg, self.bus, lambda: self.state, self.utterances.append, barge, lost, factory)
         self.mic.segmenter = Segmenter(silence_ms=90, min_speech_ms=60, is_speech=lambda f: f == LOUD)
 
     async def feed(self, *frames):
@@ -139,3 +142,33 @@ async def test_start_failure_raises_and_leaves_loop_stopped():
     with pytest.raises(OSError):
         rig.mic.start()
     assert not rig.mic.running and rig.streams[0].log == ["close"]
+
+
+async def test_stream_finishing_on_its_own_reports_the_mic_lost():
+    rig = Rig()
+    rig.mic.start()
+    stream = rig.streams[0]
+    await asyncio.to_thread(stream.finished)  # PortAudio calls it from its own thread
+    await asyncio.sleep(0)
+    assert rig.lost == 1 and not rig.mic.running and stream.log[-1] == "close"
+
+
+async def test_own_stop_is_not_reported_as_mic_lost():
+    rig = Rig()
+    rig.mic.start()
+    rig.mic.stop()
+    rig.streams[0].finished()
+    await asyncio.sleep(0)
+    assert rig.lost == 0
+
+
+async def test_no_frames_for_a_while_reports_the_mic_lost(monkeypatch):
+    monkeypatch.setattr("ohbotchat.loop.NO_FRAMES_S", 0.05)
+    rig = Rig()
+    rig.mic.start()
+    for _ in range(4):
+        await asyncio.sleep(0.03)
+        await rig.feed(QUIET)
+    assert rig.lost == 0
+    await asyncio.sleep(0.1)
+    assert rig.lost == 1 and not rig.mic.running

@@ -6,6 +6,7 @@ from .events import EventBus
 from .listen import FRAME_BYTES, FRAME_MS, LevelMeter, Segmenter, _mic_stream
 from .state import State
 
+NO_FRAMES_S = 2.0  # an unplugged USB mic may just go silent instead of finishing the stream
 BARGE_GAP_FRAMES = 3  # a child's voice dips between syllables; only this much quiet in a row resets the hold
 
 
@@ -24,14 +25,17 @@ class MicLoop:
         state: Callable[[], State],
         on_utterance: Callable[[bytes], None],
         on_barge: Callable[[], None],
+        on_lost: Callable[[], None],
         stream_factory: Callable | None = None,
     ) -> None:
         self._cfg, self._state, self._factory = config, state, stream_factory or _mic_stream
-        self._on_utterance, self._on_barge = on_utterance, on_barge
+        self._on_utterance, self._on_barge, self._on_lost = on_utterance, on_barge, on_lost
         self._bus = bus
         self._meter = LevelMeter(bus)
         self.segmenter = Segmenter(config.vad.aggressiveness, config.vad.silence_ms, config.vad.min_speech_ms)
         self._stream = None
+        self._watchdog: asyncio.TimerHandle | None = None
+        self._last_frame = 0.0
         self._buf = bytearray()
         self._loud: list[bytes] = []
         self._quiet = 0
@@ -46,7 +50,10 @@ class MicLoop:
             return
         loop = asyncio.get_running_loop()
         # the PortAudio callback must never block, so it only schedules the frame onto the loop
-        stream = self._factory(lambda chunk: loop.call_soon_threadsafe(self._feed, chunk))
+        stream = self._factory(
+            lambda chunk: loop.call_soon_threadsafe(self._feed, chunk),
+            lambda: loop.call_soon_threadsafe(self._finished, stream),
+        )
         try:
             stream.start()
         except Exception:
@@ -56,20 +63,40 @@ class MicLoop:
         self._loud.clear()
         self.segmenter.reset()
         self._stream = stream
+        self._last_frame = loop.time()
+        self._watchdog = loop.call_later(NO_FRAMES_S, self._watch)
 
     def stop(self) -> None:
         stream, self._stream = self._stream, None
         if stream is None:
             return
+        self._watchdog.cancel()
         try:
             stream.stop()
             stream.close()
         finally:
             self._bus.publish("level", level=0.0)
 
+    def _finished(self, stream) -> None:
+        if stream is self._stream:  # stop() clears _stream first, so only a stream that died on its own gets here
+            self._lost()
+
+    def _watch(self) -> None:
+        loop = asyncio.get_running_loop()
+        silent_until = self._last_frame + NO_FRAMES_S
+        if loop.time() >= silent_until:
+            self._lost()
+        else:
+            self._watchdog = loop.call_later(silent_until - loop.time(), self._watch)
+
+    def _lost(self) -> None:
+        self.stop()
+        self._on_lost()
+
     def _feed(self, chunk: bytes) -> None:
         if self._stream is None:  # callbacks already queued when stop() ran
             return
+        self._last_frame = asyncio.get_running_loop().time()
         self._buf += chunk
         while len(self._buf) >= FRAME_BYTES:
             frame = bytes(self._buf[:FRAME_BYTES])

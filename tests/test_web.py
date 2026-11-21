@@ -22,6 +22,7 @@ class FakeApp:
         self.calls = []
         self.listener = type("L", (), {"recording": False})()
         self.closed = 0
+        self.mic_error = None
 
     def set_mode(self, mode):
         self.calls.append(f"mode:{mode}")
@@ -95,6 +96,13 @@ def test_snapshot_contents(client, app):
     assert s["robot"] is True and s["has_key"] is True
     assert s["barge_in"] == {"enabled": False, "threshold": app.config.barge_in.threshold}
     assert s["colours"]["listening"] == app.config.colours.listening
+    assert s["mic_error"] is None
+
+
+def test_snapshot_carries_a_mic_error_raised_before_the_client_connected(client, app):
+    app.mic_error = "Nie mogę włączyć mikrofonu"
+    with connect(client) as ws:
+        assert snapshot(ws)["mic_error"] == "Nie mogę włączyć mikrofonu"
 
 
 def test_missing_key_is_reported_in_snapshot(app):

@@ -33,7 +33,7 @@ class App:
         self.robot = robot or Robot(OhbotDriver(), config, self.bus)
         self.fallback = fallback or Fallback(config.root / "cache" / "fallback")
         self.listener = listener or Listener(config, self.bus)
-        self.mic = MicLoop(config, self.bus, lambda: self.state, self.start_turn, self._barge_in, mic_stream)
+        self.mic = MicLoop(config, self.bus, lambda: self.state, self.start_turn, self._barge_in, self._mic_lost, mic_stream)
         self.state = State.IDLE
         self.history: list[dict] = []
         self._task: asyncio.Task | None = None
@@ -43,6 +43,7 @@ class App:
         self._rec_timer: asyncio.TimerHandle | None = None
         self._wake_until = 0.0
         self._closed = False
+        self.mic_error: str | None = None  # a client that connects after the failure still has to see it
 
     def _default_engine(self):
         import openai
@@ -109,6 +110,7 @@ class App:
             self.bus.publish("error", kind="other", message=f"Nie mogę włączyć mikrofonu: {e}")
             self._act("cancel")
             return
+        self.mic_error = None
         self._cancel_rec_timer()
         self._rec_timer = asyncio.get_running_loop().call_later(self.config.conversation.max_record_s, self.ptt_stop)
 
@@ -135,11 +137,24 @@ class App:
             self.mic.start()
         except Exception as e:
             log.exception("microphone loop unavailable")
-            self.bus.publish("error", kind="other", message=f"Nie mogę włączyć mikrofonu, wracam do trybu z przyciskiem: {e}")
-            self.config.conversation.mode = "ptt"
+            self._fall_back_to_ptt(f"Nie mogę włączyć mikrofonu, wracam do trybu z przyciskiem: {e}")
             return
+        self.mic_error = None
         if self.state == State.IDLE:
             self._act("listen")
+
+    def _mic_lost(self) -> None:
+        log.error("microphone stream lost")
+        self._fall_back_to_ptt("Mikrofon odłączony – wracam do trybu z przyciskiem")
+
+    def _fall_back_to_ptt(self, message: str) -> None:
+        self.mic_error = message
+        self.bus.publish("error", kind="other", message=message)
+        self.config.conversation.mode = "ptt"
+        self._wake_until = 0.0
+        self.bus.publish("settings", mode="ptt")
+        if self.state == State.LISTENING:
+            self._act("cancel")
 
     def _barge_in(self) -> None:
         self.stop(relisten=True)

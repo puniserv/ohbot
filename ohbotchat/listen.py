@@ -103,7 +103,7 @@ class LevelMeter:
         return value
 
 
-def _mic_stream(on_chunk: Callable[[bytes], None]):
+def _mic_stream(on_chunk: Callable[[bytes], None], on_finished: Callable[[], None] | None = None):
     import sounddevice as sd
 
     return sd.RawInputStream(
@@ -112,6 +112,7 @@ def _mic_stream(on_chunk: Callable[[bytes], None]):
         dtype="int16",
         blocksize=FRAME_BYTES // 2,
         callback=lambda indata, frames, time, status: on_chunk(bytes(indata)),
+        finished_callback=on_finished,
     )
 
 
