@@ -1,4 +1,5 @@
 import io
+import json
 import wave
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
@@ -6,7 +7,7 @@ from contextlib import contextmanager
 import openai
 
 from .config import Config
-from .engine import EngineError, Reply
+from .engine import GESTURES, EngineError, Reply
 from .events import EventBus
 
 
@@ -18,6 +19,31 @@ def _wav(pcm16k: bytes) -> bytes:
         w.setframerate(16000)
         w.writeframes(pcm16k)
     return buf.getvalue()
+
+
+_REPLY_FORMAT = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "reply",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {"text": {"type": "string"}, "gesture": {"type": "string", "enum": list(GESTURES)}},
+            "required": ["text", "gesture"],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
+def _parse_reply(raw: str) -> tuple[str, str]:
+    try:
+        data = json.loads(raw)
+        text = data["text"].strip()
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return raw, "none"
+    gesture = data.get("gesture")
+    return text, gesture if gesture in GESTURES else "none"
 
 
 def _is_quota(e: openai.RateLimitError) -> bool:
@@ -106,11 +132,12 @@ class ChainEngine:
                 messages=messages,
                 max_completion_tokens=c.max_tokens,
                 timeout=c.timeout_s,
+                response_format=_REPLY_FORMAT,
                 **({"reasoning_effort": c.reasoning_effort} if c.reasoning_effort else {}),
             ),
         )
-        text = (r.choices[0].message.content or "").strip()
+        text, gesture = _parse_reply((r.choices[0].message.content or "").strip())
         if not text:
             raise EngineError("other", "empty chat reply")
         await self._moderate("moderation_out", text)
-        return Reply(heard=heard, text=text, pcm=await self.synthesize(text))
+        return Reply(heard=heard, text=text, pcm=await self.synthesize(text), gesture=gesture)

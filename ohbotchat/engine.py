@@ -2,6 +2,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+GESTURES = ("none", "yes", "no", "surprised", "happy", "thinking")
 ErrorKind = Literal["network", "quota", "auth", "moderated", "empty", "nokey", "other"]
 
 
@@ -16,7 +17,7 @@ class Reply:
     heard: str  # transcript of the user utterance
     text: str  # assistant reply text
     pcm: bytes  # 24 kHz mono s16le
-    gesture: str | None = None  # stage 4
+    gesture: str | None = None  # one of GESTURES
 
 
 class Engine(Protocol):

@@ -167,3 +167,26 @@ async def test_synthesize_without_publish_is_silent():
     q = bus.subscribe()
     await eng.synthesize("Hej", publish=False)
     assert q.empty()
+
+
+async def test_chat_asks_for_json_schema_and_parses_gesture():
+    client = FakeClient(text='{"text": " Tak, to prawda! ", "gesture": "yes"}')
+    eng, _ = make(client)
+    reply = await eng.respond("x", [])
+    assert (reply.text, reply.gesture) == ("Tak, to prawda!", "yes")
+    fmt = dict(client.calls)["chat"]["response_format"]
+    assert fmt["type"] == "json_schema" and fmt["json_schema"]["strict"] is True
+    assert fmt["json_schema"]["schema"]["properties"]["gesture"]["enum"] == ["none", "yes", "no", "surprised", "happy", "thinking"]
+    assert [c[1]["input"] for c in client.calls if c[0] == "moderation"][-1] == "Tak, to prawda!"
+    assert dict(client.calls)["tts"]["input"] == "Tak, to prawda!"
+
+
+@pytest.mark.parametrize("content", ["Cześć!", '{"gesture": "yes"}', '["Cześć!"]', '{"text": "Cześć!"'])
+async def test_unparsable_chat_reply_falls_back_to_raw_text(content):
+    reply = await make(FakeClient(text=content))[0].respond("x", [])
+    assert (reply.text, reply.gesture) == (content, "none")
+
+
+async def test_unknown_gesture_becomes_none():
+    reply = await make(FakeClient(text='{"text": "Hej", "gesture": "dance"}'))[0].respond("x", [])
+    assert (reply.text, reply.gesture) == ("Hej", "none")
