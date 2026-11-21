@@ -7,6 +7,7 @@ from .listen import FRAME_BYTES, FRAME_MS, LevelMeter, Segmenter, _mic_stream
 from .state import State
 
 NO_FRAMES_S = 2.0  # an unplugged USB mic may just go silent instead of finishing the stream
+ECHO_TAIL_S = 0.5  # servo whine and the speaker's last syllable must not open an utterance after the reply
 BARGE_GAP_FRAMES = 3  # a child's voice dips between syllables; only this much quiet in a row resets the hold
 
 
@@ -43,6 +44,8 @@ class MicLoop:
         self._buf = bytearray()
         self._loud: list[bytes] = []
         self._quiet = 0
+        self._tail_until = 0.0
+        self._barged = False
 
     @property
     def running(self) -> bool:
@@ -114,11 +117,17 @@ class MicLoop:
     def _frame(self, frame: bytes) -> None:
         value = self._meter(frame)
         state = self._state()
-        if state == State.SPEAKING and self._cfg.barge_in.enabled:
-            self._watch_barge(frame, value)
-            return
+        now = asyncio.get_running_loop().time()
+        if state == State.SPEAKING:
+            if not self._barged:  # the interrupted turn may still read SPEAKING for a few frames
+                self._tail_until = now + ECHO_TAIL_S
+            if self._cfg.barge_in.enabled:
+                self._watch_barge(frame, value)
+                return
+        else:
+            self._barged = False
         self._loud.clear()
-        if state != State.LISTENING:
+        if state != State.LISTENING or now < self._tail_until:
             self.segmenter.reset()
             return
         if utterance := self.segmenter.feed(frame):
@@ -135,6 +144,7 @@ class MicLoop:
         if len(self._loud) * FRAME_MS < self._cfg.barge_in.hold_ms:
             return
         frames, self._loud = self._loud, []
+        self._barged, self._tail_until = True, 0.0
         self._on_barge()
         self.segmenter.reset()
         for f in frames:

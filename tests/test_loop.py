@@ -196,3 +196,30 @@ def test_segmenter_max_length_comes_from_max_record_s():
     rig.cfg.conversation.max_record_s = 0.3
     mic = MicLoop(rig.cfg, rig.bus, lambda: rig.state, rig.utterances.append, None, None, None)
     assert mic.segmenter._max_frames == 10
+
+
+async def test_echo_tail_after_speaking_is_not_an_utterance(monkeypatch):
+    monkeypatch.setattr("ohbotchat.loop.ECHO_TAIL_S", 0.05)
+    rig = Rig()
+    rig.mic.start()
+    rig.state = State.SPEAKING
+    await rig.feed(QUIET)
+    rig.state = State.LISTENING
+    await rig.feed(*[LOUD] * 4, *[QUIET] * 3)  # servo whine or the speaker's last syllable
+    assert rig.utterances == []
+    await asyncio.sleep(0.06)
+    await rig.feed(*[LOUD] * 4, *[QUIET] * 3)
+    assert len(rig.utterances) == 1
+
+
+async def test_barge_in_speech_is_kept_while_the_turn_is_still_being_cancelled():
+    rig = Rig()
+    rig.cfg.barge_in.enabled = True
+    rig.mic.start()
+    rig.state = State.SPEAKING
+    await rig.feed(LOUD, LOUD, LOUD)
+    rig.state = State.SPEAKING  # the cancelled turn has not reached LISTENING yet
+    await rig.feed(QUIET)
+    rig.state = State.LISTENING
+    await rig.feed(LOUD, QUIET, QUIET, QUIET)
+    assert len(rig.utterances) == 1
