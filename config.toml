@@ -27,6 +27,8 @@ max_record_s = 30
 greeting = "Cześć! Jestem Ohbot. O czym porozmawiamy?"
 # A short "Hmm…" when the reply is slow, so the child knows the robot heard them.
 fillers = true
+# What it says then (1-10 phrases, up to 40 characters each); each one must pass moderation before it is spoken.
+filler_phrases = ["Hmm…", "Chwileczkę…", "Niech pomyślę…", "Już mówię…"]
 
 [wake]
 words = ["ohbot", "hej ohbot", "ochbot", "obot", "ołbot"]

@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from ohbotchat.config import load_config
 from ohbotchat.doctor import CheckResult
+from ohbotchat.engine import EngineError
 from ohbotchat.events import EventBus
 from ohbotchat.web import DEFAULT_PORT, create_app, server_config
 
@@ -83,6 +84,11 @@ class FakeApp:
     def calibrate(self):
         self.calls.append("calibrate")
         return "Skalibrowano"
+
+    async def prepare_fillers(self, phrases):
+        self.calls.append(("prepare", phrases))
+        if "brzydko" in phrases:
+            raise EngineError("moderated", "brzydko")
 
     def apply_settings(self, values):
         self.calls.append(("apply", values))
@@ -564,3 +570,15 @@ def test_talk_and_test_commands_are_rejected_while_asleep(client, app, msg):
         e = ws.receive_json()
     assert e["type"] == "error" and "śpi" in e["data"]["message"]
     assert app.calls == [] and app.robot.calls == []
+
+
+def test_filler_phrases_are_prepared_before_they_apply(client, app):
+    r = client.post("/api/settings", json={"conversation": {"filler_phrases": ["Moment"]}}, headers=ORIGIN)
+    assert r.status_code == 200
+    assert app.calls == [("prepare", ["Moment"]), ("apply", {"conversation": {"filler_phrases": ["Moment"]}})]
+
+
+def test_a_flagged_filler_phrase_is_rejected_with_a_clear_error(client, app):
+    r = client.post("/api/settings", json={"conversation": {"filler_phrases": ["Ok", "brzydko"]}}, headers=ORIGIN)
+    assert r.status_code == 400 and "brzydko" in r.json()["detail"] and "filtr" in r.json()["detail"]
+    assert app.calls == [("prepare", ["Ok", "brzydko"])]

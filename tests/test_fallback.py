@@ -1,5 +1,6 @@
 from ohbotchat.engine import EngineError
-from ohbotchat.fallback import FILLERS, PHRASES, Fallback
+from ohbotchat.config import DEFAULT_FILLERS as FILLERS
+from ohbotchat.fallback import PHRASES, Fallback
 
 
 class FakeTts:
@@ -13,6 +14,12 @@ class FakeTts:
         self.said.append(text)
         return text.encode()
 
+    async def say(self, text, publish=True):
+        if text == "brzydko":
+            raise EngineError("moderated")
+        self.moderated = [*getattr(self, "moderated", []), text]
+        return await self.synthesize(text, publish)
+
 
 def test_get_missing_is_none(tmp_path):
     assert Fallback(tmp_path).get("error") is None
@@ -20,19 +27,19 @@ def test_get_missing_is_none(tmp_path):
 
 async def test_ensure_generates_missing_only(tmp_path):
     fb, tts = Fallback(tmp_path), FakeTts()
-    assert not fb.complete()
-    await fb.ensure(tts)
-    assert fb.complete() and set(tts.publish_flags) == {False}
+    assert not fb.complete(FILLERS)
+    await fb.ensure(tts, FILLERS)
+    assert fb.complete(FILLERS) and set(tts.publish_flags) == {False}
     assert set(PHRASES) == {"no_network", "not_heard", "moderated", "error", "listening"}
     assert fb.get("not_heard") == PHRASES["not_heard"].encode()
     tts.said.clear()
-    await fb.ensure(tts)
+    await fb.ensure(tts, FILLERS)
     assert tts.said == []
 
 
 async def test_ensure_survives_offline(tmp_path):
     fb = Fallback(tmp_path)
-    await fb.ensure(FakeTts(fail_on=PHRASES["error"]))
+    await fb.ensure(FakeTts(fail_on=PHRASES["error"]), FILLERS)
     assert fb.get("error") is None and fb.get("moderated") is not None
 
 
@@ -47,7 +54,13 @@ def test_text_cache_is_per_directory_and_text(tmp_path):
 
 async def test_ensure_also_caches_fillers(tmp_path):
     fb, tts = Fallback(tmp_path), FakeTts()
-    await fb.ensure(tts)
+    await fb.ensure(tts, FILLERS)
     assert all(fb.cached(t) == t.encode() for t in FILLERS)
     fb.dir.joinpath(next(fb.dir.glob("say-*.pcm")).name).unlink()
-    assert not fb.complete()
+    assert not fb.complete(FILLERS)
+
+
+async def test_fillers_are_user_text_so_they_pass_moderation_and_a_flagged_one_is_not_cached(tmp_path):
+    fb, tts = Fallback(tmp_path), FakeTts()
+    await fb.ensure(tts, ["Moment", "brzydko"])
+    assert tts.moderated == ["Moment"] and fb.cached("Moment") == b"Moment" and fb.cached("brzydko") is None

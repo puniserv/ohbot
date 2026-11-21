@@ -12,7 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .config import VOICES, editable_settings, save_settings, validate_settings, write_atomic
 from .doctor import run_doctor
-from .engine import GESTURES
+from .engine import GESTURES, EngineError
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +24,11 @@ MANUAL_GESTURES = tuple(g for g in GESTURES if g != "none")
 MOTORS = range(7)
 MANUAL = ("gesture", "motor", "close_mouth", "neutral", "calibrate", "say", "voice_sample")
 MAX_SAY = 300
+FILLER_ERRORS = {
+    "moderated": "Fraza „{}” nie przeszła filtra bezpieczeństwa – zmień ją",
+    "nokey": "Brak klucza API – frazy „{}” nie da się sprawdzić",
+    "other": "Nie udało się sprawdzić frazy „{}” (brak internetu?) – spróbuj ponownie",
+}
 MAX_PERSONA = 8000
 BUSY = "Robot jest zajęty – spróbuj, gdy skończy"
 ASLEEP = "Robot śpi – kliknij „Obudź”"
@@ -269,6 +274,11 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             values = validate_settings(await _json(request))
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
+        if phrases := values.get("conversation", {}).get("filler_phrases"):
+            try:
+                await app.prepare_fillers(phrases)
+            except EngineError as e:
+                raise HTTPException(400, FILLER_ERRORS.get(e.kind, FILLER_ERRORS["other"]).format(e)) from None
         app.apply_settings(values)
         app.bus.publish("settings", **settings())
         return {"values": editable_settings(cfg)}

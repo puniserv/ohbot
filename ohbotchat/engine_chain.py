@@ -141,10 +141,10 @@ class ChainEngine:
             raise EngineError("empty")
         return text
 
-    async def _moderate(self, name: str, text: str) -> None:
+    async def _moderate(self, name: str, text: str, publish: bool = True) -> None:
         c = self._cfg.openai
         r = await self._stage(
-            name, lambda: self._client.moderations.create(model=c.moderation_model, input=text, timeout=c.timeout_s)
+            name, lambda: self._client.moderations.create(model=c.moderation_model, input=text, timeout=c.timeout_s), publish
         )
         if r.results[0].flagged:
             raise EngineError("moderated")
@@ -160,10 +160,10 @@ class ChainEngine:
         )
         return speech.content
 
-    async def say(self, text: str, voice: str | None = None) -> bytes:
-        """Speech for text that did not come from the chat model (greeting, test sentence), moderated like a reply."""
-        await self._moderate("moderation_out", text)
-        return await self.synthesize(text, voice=voice)
+    async def say(self, text: str, voice: str | None = None, publish: bool = True) -> bytes:
+        """Speech for text that did not come from the chat model (greeting, test sentence, fillers), moderated like a reply."""
+        await self._moderate("moderation_out", text, publish)
+        return await self.synthesize(text, publish, voice)
 
     async def respond(self, heard: str, history: list[dict], on_safe: Callable[[], None] | None = None) -> Reply:
         c = self._cfg.openai

@@ -243,7 +243,11 @@ async function api(method, path, body) {
 const fail = (e) => toast("Nie udało się: " + e.message);
 
 const fields = () => document.querySelectorAll("#settings-panel [data-key]");
-const fieldValue = (el) => (el.type === "checkbox" ? el.checked : el.type === "range" || el.type === "number" ? Number(el.value) : el.value);
+const fieldValue = (el) =>
+  el.type === "checkbox" ? el.checked
+  : el.type === "range" || el.type === "number" ? Number(el.value)
+  : "list" in el.dataset ? el.value.split("\n").map((s) => s.trim()).filter(Boolean)
+  : el.value;
 function showValue(el) {
   const out = el.nextElementSibling;
   if (out && out.tagName === "OUTPUT") out.textContent = el.value;
@@ -259,7 +263,7 @@ async function openSettings() {
     const [section, key] = el.dataset.key.split(".");
     const v = d.values[section][key];
     if (el.type === "checkbox") el.checked = v;
-    else el.value = v;
+    else el.value = Array.isArray(v) ? v.join("\n") : v;
     showValue(el);
   }
   promptPersona = $("persona").value;

@@ -32,6 +32,9 @@ class OpenAIConfig:
     reasoning_effort: str = "none"  # "" omits the parameter (non-reasoning chat models reject it)
 
 
+DEFAULT_FILLERS = ["Hmm…", "Chwileczkę…", "Niech pomyślę…", "Już mówię…"]
+
+
 @dataclass
 class ConversationConfig:
     persona: str = "dzieci"
@@ -40,6 +43,7 @@ class ConversationConfig:
     max_record_s: float = 30  # a stuck button or dropped page must not record forever
     greeting: str = "Cześć! Jestem Ohbot. O czym porozmawiamy?"
     fillers: bool = True
+    filler_phrases: list[str] = field(default_factory=lambda: list(DEFAULT_FILLERS))
 
 
 @dataclass
@@ -181,6 +185,17 @@ def _text(max_len: int):
     return check
 
 
+def _texts(max_items: int, max_len: int):
+    one = _text(max_len)
+
+    def check(v):
+        if not isinstance(v, list) or not 1 <= len(v) <= max_items:
+            raise ValueError(f"expected a list of 1..{max_items} texts")
+        return [one(x) for x in v]
+
+    return check
+
+
 def _voice(v):
     if v not in VOICES:
         raise ValueError("unknown voice")
@@ -207,7 +222,7 @@ EDITABLE = {
     "barge_in": {"threshold": _number(float, 0, 1)},
     "vad": {"silence_ms": _number(int, 200, 5000)},
     "wake": {"window_s": _number(float, 1, 60)},
-    "conversation": {"greeting": _text(300), "fillers": _flag},
+    "conversation": {"greeting": _text(300), "fillers": _flag, "filler_phrases": _texts(10, 40)},
     "camera": {
         "enabled": _flag,
         "index": _number(int, 0, 9),
@@ -252,20 +267,24 @@ def editable_settings(cfg: Config) -> dict[str, dict]:
 def _toml_value(v) -> str:
     if isinstance(v, bool):
         return "true" if v else "false"
-    if isinstance(v, str):
-        return json.dumps(v, ensure_ascii=False)  # a JSON string is a valid TOML basic string
+    if isinstance(v, (str, list)):
+        return json.dumps(v, ensure_ascii=False)  # a JSON string, or array of them, is valid TOML
     return repr(v)
 
 
+def _parses(value: str) -> bool:
+    try:
+        tomllib.loads("v = " + value)
+        return True
+    except tomllib.TOMLDecodeError:
+        return False
+
+
 def _comment(rest: str) -> str:
-    """The trailing comment after a single-line value (a `#` inside a string is not one)."""
+    """The trailing comment after a value (a `#` inside a string or an unfinished array is not one)."""
     for i, c in enumerate(rest):
-        if c == "#":
-            try:
-                tomllib.loads("v = " + rest[:i])
-                return "  " + rest[i:]
-            except tomllib.TOMLDecodeError:
-                continue
+        if c == "#" and _parses(rest[:i]):
+            return "  " + rest[i:]
     return ""
 
 
@@ -281,7 +300,12 @@ def _set_line(lines: list[str], section: str, key: str, line: str) -> None:
                 header = end = i
         elif current == section:
             if m := re.match(rf"\s*{re.escape(key)}\s*=(.*)$", text):
-                lines[i] = line + _comment(m.group(1).strip())
+                value, last = m.group(1), i
+                # a hand-written array over several lines; anything else broken stays a one-line replace
+                while value.lstrip().startswith("[") and not _parses(value) and last + 1 < len(lines):
+                    last += 1
+                    value += "\n" + lines[last]
+                lines[i : last + 1] = [line + _comment(value.strip())]
                 return
             if text.strip():
                 end = i

@@ -10,7 +10,6 @@ PHRASES = {
     "error": "Coś mi się pomyliło, spróbuj jeszcze raz.",
     "listening": "Słucham?",
 }
-FILLERS = ("Hmm…", "Chwileczkę…", "Niech pomyślę…", "Już mówię…")
 
 
 class Fallback:
@@ -33,19 +32,23 @@ class Fallback:
         self.dir.mkdir(parents=True, exist_ok=True)
         (self.dir / f"{self._text_key(text)}.pcm").write_bytes(pcm)
 
-    def complete(self) -> bool:
-        return all(self.get(k) is not None for k in PHRASES) and all(self.cached(t) is not None for t in FILLERS)
+    def complete(self, fillers: list[str]) -> bool:
+        return all(self.get(k) is not None for k in PHRASES) and all(self.cached(t) is not None for t in fillers)
 
-    async def ensure(self, engine) -> None:
-        """Generates missing phrases via `engine.synthesize`; offline just leaves them missing."""
+    async def ensure(self, engine, fillers: list[str]) -> None:
+        """Generates missing phrases; offline, or a flagged filler, just leaves them missing.
+
+        Fillers are operator text, so they go through `engine.say` and its moderation; the fixed phrases do not.
+        """
         self.dir.mkdir(parents=True, exist_ok=True)
-        todo = [(f"{k}.pcm", t) for k, t in PHRASES.items()] + [(f"{self._text_key(t)}.pcm", t) for t in FILLERS]
-        for name, text in todo:
+        todo = [(f"{k}.pcm", t, engine.synthesize) for k, t in PHRASES.items()]
+        todo += [(f"{self._text_key(t)}.pcm", t, engine.say) for t in fillers]
+        for name, text, speak in todo:
             path = self.dir / name
             if path.is_file():
                 continue
             try:
-                pcm = await engine.synthesize(text, publish=False)
+                pcm = await speak(text, publish=False)
             except EngineError:
                 continue
             path.write_bytes(pcm)

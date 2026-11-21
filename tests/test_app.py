@@ -39,8 +39,10 @@ class FakeEngine:
     async def synthesize(self, text):
         return b"\x00\x00"
 
-    async def say(self, text, voice=None):
+    async def say(self, text, voice=None, publish=True):
         self.said = [*getattr(self, "said", []), (text, voice)]
+        if text == "brzydko":
+            raise EngineError("moderated")
         if self.fail and self.fail_stage == "say":
             raise self.fail
         return b"SAY-" + text.encode()[:4]
@@ -74,7 +76,7 @@ class FakeFallback:
         self.asked, self.ensured, self._complete = [], 0, complete
         self.dir, self.texts = None, {}
 
-    def complete(self):
+    def complete(self, fillers=()):
         return self._complete
 
     def get(self, key):
@@ -82,7 +84,7 @@ class FakeFallback:
         pcm = b"FB-" + key.encode()
         return pcm + b"\0" * (len(pcm) % 2)
 
-    async def ensure(self, engine):
+    async def ensure(self, engine, fillers=()):
         self.ensured += 1
 
     def cached(self, text):
@@ -1066,7 +1068,7 @@ async def test_voice_change_restarts_phrase_generation_for_the_new_voice():
             super().__init__(complete=False)
             self.cancelled = 0
 
-        async def ensure(self, engine):
+        async def ensure(self, engine, fillers=()):
             self.ensured += 1
             try:
                 await asyncio.sleep(60)
@@ -1248,3 +1250,24 @@ async def test_sleep_cancels_a_running_turn_and_closes_the_mouth(monkeypatch):
     assert task.done() and app.state == State.IDLE
     assert ("eye", 0, 0, 0) in driver.calls and driver.closed
     await app.close()
+
+
+async def test_new_filler_phrases_are_moderated_and_cached_before_use():
+    engine = FakeEngine()
+    app, _ = make(engine)
+    app.fallback.texts["Hmm…"] = b"OLD"
+    await app.prepare_fillers(["Hmm…", "Moment"])
+    assert engine.said == [("Moment", None)]  # an already cached phrase passed moderation before
+    assert app.fallback.texts["Moment"] == b"SAY-Mome"
+    with pytest.raises(EngineError) as e:
+        await app.prepare_fillers(["Ok", "brzydko"])
+    assert e.value.kind == "moderated" and "brzydko" in str(e.value) and "brzydko" not in app.fallback.texts
+
+
+async def test_the_filler_comes_from_the_configured_phrases(monkeypatch):
+    monkeypatch.setattr("ohbotchat.app.FILLER_DELAY_S", 0.01)
+    app, _ = make(SlowEngine())
+    app.fallback.texts.update({"Hmm…": b"HMM", "Moment": b"MOMENT"})
+    app.config.conversation.filler_phrases = ["Moment"]
+    await app.handle_utterance(LONG_ENOUGH)
+    assert app.speaker.played[0] == b"MOMENT"

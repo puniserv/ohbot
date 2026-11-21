@@ -242,3 +242,34 @@ def test_config_toml_lists_every_camera_key():
     raw = tomllib.loads((ROOT / "config.toml").read_text(encoding="utf-8"))
     # load_config skips unknown keys silently, so a typo here would quietly fall back to the default
     assert set(raw["camera"]) == {f.name for f in fields(CameraConfig)}
+
+
+def test_filler_phrases_are_an_editable_list_of_short_texts():
+    from ohbotchat.config import editable_settings, validate_settings
+
+    assert editable_settings(Config())["conversation"]["filler_phrases"] == ["Hmm…", "Chwileczkę…", "Niech pomyślę…", "Już mówię…"]
+    out = validate_settings({"conversation": {"filler_phrases": [" Hmm… ", "Moment"]}})
+    assert out == {"conversation": {"filler_phrases": ["Hmm…", "Moment"]}}
+
+
+@pytest.mark.parametrize(
+    "bad", [[], ["a"] * 11, ["x" * 41], ["a\x7f"], [""], "Hmm", [1], None],
+)
+def test_filler_phrases_reject_bad_lists(bad):
+    from ohbotchat.config import validate_settings
+
+    with pytest.raises(ValueError):
+        validate_settings({"conversation": {"filler_phrases": bad}})
+
+
+def test_save_settings_writes_a_toml_array_and_replaces_a_multiline_one(tmp_path):
+    import tomllib
+
+    from ohbotchat.config import save_settings
+
+    path = tmp_path / "config.toml"
+    path.write_text('[conversation]\n# fillers\nfiller_phrases = [\n  "Hmm…",\n  "Hej",\n]  # keep\nfillers = true\n', encoding="utf-8")
+    save_settings(path, {"conversation": {"filler_phrases": ['Mo"ment', "Już…"]}})
+    text = path.read_text(encoding="utf-8")
+    assert text == '[conversation]\n# fillers\nfiller_phrases = ["Mo\\"ment", "Już…"]  # keep\nfillers = true\n'
+    assert tomllib.loads(text)["conversation"]["filler_phrases"] == ['Mo"ment', "Już…"]

@@ -8,7 +8,7 @@ from .audio import envelope, lip_positions
 from .config import Config, validate_settings
 from .engine import EngineError
 from .events import EventBus
-from .fallback import FILLERS, PHRASES, Fallback
+from .fallback import PHRASES, Fallback
 from .listen import Listener, wake_match
 from .loop import MicLoop
 from .robot import HEADNOD, HEADTURN, OhbotDriver, Robot
@@ -103,16 +103,26 @@ class App:
 
     def apply_settings(self, values: dict[str, dict]) -> None:
         """`values` must come from config.validate_settings; everything else reads the config when used."""
-        voice = self.config.openai.tts_voice
+        voice, fillers = self.config.openai.tts_voice, self.config.conversation.filler_phrases
         for section, keys in values.items():
             for key, value in keys.items():
                 setattr(getattr(self.config, section), key, value)
         self.mic.segmenter.set_silence_ms(self.config.vad.silence_ms)
-        if self.config.openai.tts_voice != voice:
+        if self.config.openai.tts_voice != voice or self.config.conversation.filler_phrases != fillers:
             if self._ensure_task:  # it would finish the old voice's phrases, or write new ones into the old folder
                 self._ensure_task.cancel()
             self.fallback.dir = self._fallback_dir()
             self._ensure_task = asyncio.create_task(self._ensure_phrases())
+
+    async def prepare_fillers(self, phrases: list[str]) -> None:
+        """Moderates and caches new filler phrases for the current voice; raises EngineError naming the failed one."""
+        for text in phrases:
+            if self.fallback.cached(text) is not None:  # cached means it already passed moderation
+                continue
+            try:
+                self.fallback.store(text, await self.engine.say(text, publish=False))
+            except EngineError as e:
+                raise EngineError(e.kind, text) from e
 
     def ready(self) -> bool:
         """Manual test commands (motors, test sentence) run only while the robot does nothing else.
@@ -201,7 +211,7 @@ class App:
 
     async def _ensure_phrases(self) -> None:
         try:
-            await self.fallback.ensure(self.engine)
+            await self.fallback.ensure(self.engine, self.config.conversation.filler_phrases)
         except Exception:
             log.exception("fallback phrase generation failed")
 
@@ -440,11 +450,11 @@ class App:
             pending.cancel()  # a stop during the filler must drop the reply too
         self._remember(heard, reply.text)
         await self._reply(reply.text, reply.pcm, reply.gesture)
-        if not self.fallback.complete():
+        if not self.fallback.complete(self.config.conversation.filler_phrases):
             self._ensure_fallback()
 
     def _filler(self) -> bytes | None:
-        cached = [pcm for text in FILLERS if (pcm := self.fallback.cached(text))]
+        cached = [pcm for text in self.config.conversation.filler_phrases if (pcm := self.fallback.cached(text))]
         return random.choice(cached) if cached else None
 
     async def _reply(self, text: str, pcm: bytes, gesture: str | None = None) -> None:
