@@ -93,6 +93,7 @@ async def test_interactive_runs_speaker_and_robot_motion():
 
 async def test_missing_key_reports_with_hint_and_no_crash():
     cfg = load_config(env={})
+    cfg.api_key = None  # the repo may hold a real .env
     res = await run(None, cfg=cfg, driver=NullDriver(connected=False))
     assert [r.ok for r in res][:5] == [False] * 5
     assert ".env" in res[0].hint
