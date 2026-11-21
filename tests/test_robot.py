@@ -230,3 +230,15 @@ async def test_cancelled_gesture_stops_and_returns_to_neutral(monkeypatch):
     await asyncio.gather(task, return_exceptions=True)
     robot.flush()
     assert driver.calls == [("move", HEADNOD, 7, GESTURE_SPEED)] + NEUTRAL_CALLS + [("eye", *cfg.colours.idle)]
+
+
+def test_ohbot_driver_reconnect_clears_a_write_stuck_by_unplug(monkeypatch):
+    # regression guard: ohbot._serwrite sets `writing` without try/finally, so a write that failed on unplug
+    # left it True and the next write after replug spun forever on the worker thread
+    fake = NS(connected=True, port="/dev/x", writing=False, ser=NS(close=lambda: None), init=lambda: None)
+    monkeypatch.setitem(sys.modules, "ohbot", NS(ohbot=fake))
+    d = OhbotDriver()
+    d.connect()
+    fake.writing = True
+    d.connect()
+    assert fake.writing is False

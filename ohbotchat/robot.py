@@ -95,6 +95,8 @@ class OhbotDriver:
         except Exception:
             pass
         self._o.connected, self._o.port = False, ""
+        # _serwrite sets `writing` without try/finally, so a write that failed on unplug would block every later one
+        self._o.writing = False
 
     @property
     def port(self) -> str:
