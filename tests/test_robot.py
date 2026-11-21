@@ -7,7 +7,7 @@ from types import SimpleNamespace as NS
 import pytest
 
 from ohbotchat import robot as robot_mod
-from ohbotchat.config import load_config
+from ohbotchat.config import Config
 from ohbotchat.events import EventBus
 from ohbotchat.robot import (
     BOTTOMLIP,
@@ -27,7 +27,8 @@ from ohbotchat.vision import Face
 
 
 def make(driver=None, **robot_cfg):
-    cfg = load_config(env={})
+    cfg = Config()  # code defaults: tuning config.toml on the robot must not break these tests
+    cfg.camera.eye_gain = 4.0  # the expected eye positions in the tracking tests are worked out with this gain
     for k, v in robot_cfg.items():
         setattr(cfg.robot, k, v)
     driver = driver or NullDriver()
@@ -91,7 +92,7 @@ async def test_driver_error_disconnects_and_publishes():
     bus = EventBus()
     q = bus.subscribe()
     driver = NullDriver()
-    robot = Robot(driver, load_config(env={}), bus)
+    robot = Robot(driver, Config(), bus)
     robot.start()
     assert (await q.get()).data == {"connected": True}
     driver.fail = OSError("unplugged")

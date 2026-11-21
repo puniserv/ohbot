@@ -74,9 +74,9 @@ mirror = true
 # Camera beside the robot: shift (-1..1) until it looks at a child straight in front of it.
 offset_x = 0.0
 offset_y = 0.0
-# How far head and eyes turn for a face at the edge of the picture (0-5).
+# How far head and eyes turn for a face at the edge of the picture (0-15).
 head_gain = 3.0
-eye_gain = 4.0
+eye_gain = 10.0
 # The head moves only when its target is this far off; the eyes follow every frame.
 deadband = 0.5
 # 0 = jumpy, 0.95 = slow and smooth.

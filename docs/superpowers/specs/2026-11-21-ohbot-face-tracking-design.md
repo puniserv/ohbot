@@ -64,8 +64,8 @@ normalised face position. State this in docs and in the README/windows.md camera
 | mirror | false | bool — flip when the robot looks the wrong way |
 | offset_x | 0.0 | -1..1 |
 | offset_y | 0.0 | -1..1 |
-| head_gain | 3.0 | 0..5 |
-| eye_gain | 4.0 | 0..5 |
+| head_gain | 3.0 | 0..15 |
+| eye_gain | 10.0 | 0..15 — faces sit near the frame centre with a wide laptop camera, so eyes need a large gain to move visibly |
 | deadband | 0.5 | 0..3 |
 | smoothing | 0.5 | 0..0.95 |
 | min_score | 0.7 | 0.3..0.99 |

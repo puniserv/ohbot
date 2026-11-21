@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from ohbotchat.config import load_config
+from ohbotchat.config import Config, load_config
 from ohbotchat.events import EventBus
 from ohbotchat.state import State, transition
 
@@ -117,10 +117,10 @@ def test_validate_settings_accepts_known_keys_and_normalises():
 def test_camera_settings_are_editable_and_normalised():
     from ohbotchat.config import editable_settings, validate_settings
 
-    values = editable_settings(load_config(env={}))["camera"]
+    values = editable_settings(Config())["camera"]
     assert values == {
         "enabled": True, "index": 0, "mirror": False, "offset_x": 0.0, "offset_y": 0.0, "head_gain": 3.0,
-        "eye_gain": 4.0, "deadband": 0.5, "smoothing": 0.5, "min_score": 0.7, "lost_after_s": 3.0,
+        "eye_gain": 10.0, "deadband": 0.5, "smoothing": 0.5, "min_score": 0.7, "lost_after_s": 3.0,
         "auto_greet": True, "greet_cooldown_s": 60.0,
     }
     out = validate_settings({"camera": {"index": 2, "mirror": True, "offset_x": -1, "greet_cooldown_s": 120}})

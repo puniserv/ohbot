@@ -3,7 +3,7 @@ from types import SimpleNamespace as NS
 
 import numpy as np
 
-from ohbotchat.config import CameraConfig, load_config
+from ohbotchat.config import CameraConfig, Config
 from ohbotchat.vision import MODEL, RETRY_S, UNAVAILABLE, Face, Vision, largest, load_detector, motor_target, position
 
 W, H = 320, 240
@@ -67,7 +67,7 @@ class Bus:
 
 def rig(**camera):
     """Vision over a fake camera opener and a detector that returns whatever `r.boxes` holds."""
-    cfg = load_config(env={})
+    cfg = Config()  # code defaults: tuning config.toml on the robot must not break these tests
     for k, v in camera.items():
         setattr(cfg.camera, k, v)
     r = NS(cfg=cfg, bus=Bus(), cams=[], boxes=[], opened=True, error=None)
