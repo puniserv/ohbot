@@ -35,6 +35,49 @@
   <ul id="doctor-results"></ul>
 </div>
 
+<div id="settings-panel" class="panel" hidden>
+  <div class="panel-head"><h2>Ustawienia</h2><span><button id="settings-save">Zapisz</button> <button id="settings-close">Zamknij</button></span></div>
+  <p class="note">Zmiany działają od razu. „Zapisz” zapisuje je w config.toml i w pliku osobowości.</p>
+  <fieldset><legend>Usta</legend>
+    <label>Zamknięte <input type="range" data-key="robot.lip_closed" min="0" max="10" step="0.1"><output></output></label>
+    <label>Otwarte <input type="range" data-key="robot.lip_open" min="0" max="10" step="0.1"><output></output></label>
+    <label>Opóźnienie ust (ms) <input type="number" data-key="robot.lip_delay_ms" min="0" max="1000" step="10"></label>
+    <label><input type="checkbox" data-key="robot.lip_invert_top"> Odwróć górną wargę</label>
+    <label><input type="checkbox" data-key="robot.lip_invert_bottom"> Odwróć dolną wargę</label>
+  </fieldset>
+  <fieldset><legend>Głos</legend>
+    <label>Głos <select data-key="openai.tts_voice" id="voice"></select></label>
+    <button id="voice-sample">Odsłuchaj</button>
+  </fieldset>
+  <fieldset><legend>Gesty</legend>
+    <label>Czas kroku (s) <input type="range" data-key="robot.gesture_step_s" min="0.05" max="2" step="0.05"><output></output></label>
+    <label>Szybkość <input type="range" data-key="robot.gesture_speed" min="1" max="10" step="1"><output></output></label>
+    <label>Zakres ruchu <input type="range" data-key="robot.gesture_scale" min="0.5" max="1.5" step="0.05"><output></output></label>
+  </fieldset>
+  <fieldset><legend>Słuchanie</legend>
+    <label>Próg przerywania głosem <input type="range" data-key="barge_in.threshold" min="0" max="1" step="0.01"><output></output></label>
+    <label>Cisza kończąca wypowiedź (ms) <input type="number" data-key="vad.silence_ms" min="200" max="5000" step="50"></label>
+    <label>Okno po „Ohbot” (s) <input type="number" data-key="wake.window_s" min="1" max="60" step="1"></label>
+  </fieldset>
+  <fieldset><legend>Powitanie</legend>
+    <label class="wide">Tekst <input type="text" data-key="conversation.greeting" maxlength="300"></label>
+    <label><input type="checkbox" data-key="conversation.fillers"> „Hmm…” gdy odpowiedź się spóźnia</label>
+  </fieldset>
+  <fieldset><legend>Prompt <span id="prompt-persona"></span></legend>
+    <p class="note">Zasady bezpieczeństwa dla dzieci są dodawane zawsze i nie da się ich tu zmienić.</p>
+    <textarea id="prompt" maxlength="8000" rows="10"></textarea>
+  </fieldset>
+</div>
+
+<div id="test-panel" class="panel" hidden>
+  <div class="panel-head"><h2>Test ruchów</h2><button id="test-close">Zamknij</button></div>
+  <p class="note">Działa tylko, gdy robot czeka.</p>
+  <div id="gestures"></div>
+  <div id="motors"></div>
+  <p><button id="close-mouth">Zamknij usta</button> <button id="neutral">Pozycja neutralna</button></p>
+  <p class="row"><input type="text" id="say-text" maxlength="300" placeholder="Próbne zdanie"> <button id="say">Powiedz</button></p>
+</div>
+
 <footer>
   <button id="talk">Przytrzymaj i mów</button>
   <button id="stop">Stop (Esc)</button>
@@ -54,6 +97,8 @@
   <div id="meter" title="Poziom mikrofonu"><div id="meter-bar"></div></div>
   <span id="robot-badge" class="badge">Robot: ?</span>
   <button id="doctor">Diagnostyka</button>
+  <button id="settings">Ustawienia</button>
+  <button id="test">Test ruchów</button>
 </footer>
 <script src="app.js"></script>
 </body>

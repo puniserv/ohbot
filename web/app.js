@@ -11,6 +11,9 @@ const ERRORS = {
   network: "Brak internetu – robot nie może się połączyć",
 };
 const MAX_BUBBLES = 20;
+const GESTURE_PL = { yes: "Tak", no: "Nie", surprised: "Zdziwienie", happy: "Radość", thinking: "Namysł" };
+const MOTORS_PL = ["Kiwanie głową", "Obrót głowy", "Oczy w bok", "Powieki", "Górna warga", "Dolna warga", "Oczy góra/dół"];
+const MOVE_EVERY_MS = 100; // a slider fires dozens of events per second; the serial link needs far fewer
 
 let ws = null;
 let colours = {};
@@ -121,7 +124,10 @@ const handlers = {
 
 function connect() {
   ws = new WebSocket("ws://" + location.host + "/ws");
-  ws.onopen = () => ($("offline").hidden = true);
+  ws.onopen = () => {
+    $("offline").hidden = true;
+    if (!$("test-panel").hidden) send({ cmd: "test_panel", open: true }); // the server forgets it on disconnect
+  };
   ws.onmessage = (m) => {
     const e = JSON.parse(m.data);
     if (handlers[e.type]) handlers[e.type](e.data);
@@ -155,7 +161,10 @@ talk.addEventListener("pointerdown", (e) => {
 ["pointerup", "pointercancel", "lostpointercapture"].forEach((ev) => talk.addEventListener(ev, talkStop));
 talk.addEventListener("contextmenu", (e) => e.preventDefault());
 
+const typing = (e) => e.target.matches("input[type=text], input[type=number], textarea");
+
 document.addEventListener("keydown", (e) => {
+  if (e.code === "Space" && typing(e)) return;
   if (e.code === "Space") {
     e.preventDefault();
     if (!e.repeat) talkStart();
@@ -164,7 +173,7 @@ document.addEventListener("keydown", (e) => {
   }
 });
 document.addEventListener("keyup", (e) => {
-  if (e.code === "Space") {
+  if (e.code === "Space" && !typing(e)) {
     e.preventDefault();
     talkStop();
   }
@@ -192,5 +201,112 @@ $("doctor").onclick = () => {
   send({ cmd: "doctor" });
 };
 $("doctor-close").onclick = () => ($("doctor-panel").hidden = true);
+
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: body ? { "content-type": "application/json" } : {}, body: body && JSON.stringify(body) });
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.detail || r.statusText);
+  return d;
+}
+const fail = (e) => toast("Nie udało się: " + e.message);
+
+const fields = () => document.querySelectorAll("#settings-panel [data-key]");
+const fieldValue = (el) => (el.type === "checkbox" ? el.checked : el.type === "range" || el.type === "number" ? Number(el.value) : el.value);
+function showValue(el) {
+  const out = el.nextElementSibling;
+  if (out && out.tagName === "OUTPUT") out.textContent = el.value;
+}
+
+let promptPersona = "";
+let promptSaved = "";
+
+async function openSettings() {
+  const d = await api("GET", "/api/settings");
+  $("voice").replaceChildren(...d.voices.map((v) => new Option(v, v)));
+  for (const el of fields()) {
+    const [section, key] = el.dataset.key.split(".");
+    const v = d.values[section][key];
+    if (el.type === "checkbox") el.checked = v;
+    else el.value = v;
+    showValue(el);
+  }
+  promptPersona = $("persona").value;
+  $("prompt-persona").textContent = "(" + promptPersona + ")";
+  promptSaved = (await api("GET", "/api/persona/" + encodeURIComponent(promptPersona))).text;
+  $("prompt").value = promptSaved;
+  $("settings-panel").hidden = false;
+}
+
+for (const el of fields()) {
+  el.addEventListener("input", () => showValue(el));
+  el.addEventListener("change", () => {
+    const [section, key] = el.dataset.key.split(".");
+    api("POST", "/api/settings", { [section]: { [key]: fieldValue(el) } }).catch(fail);
+  });
+}
+
+$("settings").onclick = () => openSettings().catch(fail);
+$("settings-close").onclick = () => ($("settings-panel").hidden = true);
+$("voice-sample").onclick = () => send({ cmd: "voice_sample", voice: $("voice").value });
+$("settings-save").onclick = async () => {
+  try {
+    await api("POST", "/api/settings/save");
+    const text = $("prompt").value;
+    if (text !== promptSaved) {
+      await api("PUT", "/api/persona/" + encodeURIComponent(promptPersona), { text });
+      promptSaved = text;
+    }
+    toast("Zapisano");
+  } catch (e) {
+    fail(e);
+  }
+};
+
+const pendingMoves = new Map();
+let moveTimer = null;
+function queueMove(motor, pos) {
+  pendingMoves.set(motor, pos);
+  moveTimer ??= setTimeout(() => {
+    moveTimer = null;
+    for (const [m, p] of pendingMoves) send({ cmd: "motor", motor: m, pos: p });
+    pendingMoves.clear();
+  }, MOVE_EVERY_MS);
+}
+
+MOTORS_PL.forEach((name, motor) => {
+  const input = Object.assign(document.createElement("input"), { type: "range", min: 0, max: 10, step: 0.1, value: motor === 3 ? 10 : 5 });
+  input.oninput = () => queueMove(motor, Number(input.value));
+  const label = document.createElement("label");
+  label.append(name, input);
+  $("motors").append(label);
+});
+
+$("test").onclick = async () => {
+  try {
+    const d = await api("GET", "/api/settings");
+    $("gestures").replaceChildren(
+      ...d.gestures.map((g) => {
+        const b = document.createElement("button");
+        b.textContent = GESTURE_PL[g] || g;
+        b.onclick = () => send({ cmd: "gesture", name: g });
+        return b;
+      }),
+    );
+    $("test-panel").hidden = false;
+    send({ cmd: "test_panel", open: true });
+  } catch (e) {
+    fail(e);
+  }
+};
+$("test-close").onclick = () => {
+  $("test-panel").hidden = true;
+  send({ cmd: "test_panel", open: false });
+};
+$("close-mouth").onclick = () => send({ cmd: "close_mouth" });
+$("neutral").onclick = () => send({ cmd: "neutral" });
+$("say").onclick = () => {
+  const text = $("say-text").value.trim();
+  if (text) send({ cmd: "say", text });
+};
 
 connect();
