@@ -21,6 +21,8 @@ let held = false;
 let handsFree = false;
 let toastTimer = null;
 let barge = { enabled: false, threshold: 0.15 };
+let asleep = false;
+let robotConnected = false;
 
 function send(msg) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
@@ -54,9 +56,18 @@ function setState(state) {
 }
 
 function setRobot(connected) {
+  robotConnected = connected;
   const b = $("robot-badge");
-  b.textContent = connected ? "Robot: połączony" : "Robot: brak";
-  b.classList.toggle("ok", connected);
+  b.textContent = asleep ? "Robot: śpi" : connected ? "Robot: połączony" : "Robot: brak";
+  b.classList.toggle("ok", connected && !asleep);
+}
+
+function setSleep(value) {
+  asleep = value;
+  $("sleep").textContent = asleep ? "Obudź" : "Uśpij robota";
+  $("sleep").disabled = false;
+  $("talk").disabled = asleep;
+  setRobot(robotConnected);
 }
 
 function setCamera(ok) {
@@ -108,6 +119,7 @@ const handlers = {
     applySettings(d);
     setState(d.state);
     setRobot(d.robot);
+    setSleep(d.asleep);
     setCamera(d.camera);
     $("nokey").hidden = d.has_key;
     if (d.mic_error) toast(d.mic_error);
@@ -122,6 +134,7 @@ const handlers = {
   reply: (d) => bubble("robot", "Ohbot:", d.text),
   error: (d) => toast(ERRORS[d.kind] || (d.kind === "other" && d.message) || "Coś poszło nie tak – szczegóły w logu"),
   robot: (d) => setRobot(d.connected),
+  sleep: (d) => setSleep(d.asleep),
   camera: (d) => setCamera(d.ok),
   face: (d) => {
     const dot = $("face-dot");
@@ -198,6 +211,11 @@ document.addEventListener("change", (e) => e.target.blur()); // a focused contro
 document.addEventListener("click", (e) => e.target.tagName === "BUTTON" && e.target.blur());
 
 $("stop").onclick = () => send({ cmd: "stop" });
+$("sleep").onclick = () => {
+  $("sleep").disabled = true; // waking reconnects the robot and takes a moment; the "sleep" event re-enables it
+  $("sleep").textContent = asleep ? "Budzę…" : "Usypiam…";
+  send({ cmd: "sleep", asleep: !asleep });
+};
 $("new").onclick = () => {
   $("subtitles").replaceChildren();
   send({ cmd: "new" });
