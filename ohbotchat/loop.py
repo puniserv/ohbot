@@ -73,9 +73,11 @@ class MicLoop:
         self._watchdog.cancel()
         try:
             stream.stop()
-            stream.close()
         finally:
-            self._bus.publish("level", level=0.0)
+            try:
+                stream.close()
+            finally:
+                self._bus.publish("level", level=0.0)
 
     def _finished(self, stream) -> None:
         if stream is self._stream:  # stop() clears _stream first, so only a stream that died on its own gets here
@@ -90,8 +92,10 @@ class MicLoop:
             self._watchdog = loop.call_later(silent_until - loop.time(), self._watch)
 
     def _lost(self) -> None:
-        self.stop()
-        self._on_lost()
+        try:
+            self.stop()
+        finally:
+            self._on_lost()
 
     def _feed(self, chunk: bytes) -> None:
         if self._stream is None:  # callbacks already queued when stop() ran

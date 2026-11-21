@@ -172,3 +172,20 @@ async def test_no_frames_for_a_while_reports_the_mic_lost(monkeypatch):
     assert rig.lost == 0
     await asyncio.sleep(0.1)
     assert rig.lost == 1 and not rig.mic.running
+
+
+async def test_mic_lost_is_reported_even_when_the_dead_stream_fails_to_stop():
+    rig = Rig()
+    levels = []
+    rig.bus._deliver = levels.append
+    rig.mic.start()
+    stream = rig.streams[0]
+
+    def dead():
+        raise OSError("device gone")
+
+    stream.stop = dead
+    with pytest.raises(OSError):
+        rig.mic._finished(stream)  # what the finished callback runs on the loop
+    assert rig.lost == 1 and not rig.mic.running and stream.log == ["start", "close"]
+    assert levels[-1].data == {"level": 0.0}
