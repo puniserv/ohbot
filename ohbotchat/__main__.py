@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import logging
 import sys
 import threading
 import webbrowser
@@ -8,6 +9,8 @@ from .config import load_config
 from .doctor import CheckResult, run_doctor
 from .engine import EngineError
 from .web import DEFAULT_PORT
+
+log = logging.getLogger(__name__)
 
 _MARK = {True: "✔", False: "✘", None: "-"}
 _ERROR_HINTS = {
@@ -95,7 +98,7 @@ class NoKeyEngine:
     transcribe = respond = synthesize = _fail
 
 
-async def _web(port: int) -> int:
+async def _web(port: int, on_ready) -> int:
     import uvicorn
 
     from .app import App
@@ -105,15 +108,15 @@ async def _web(port: int) -> int:
     app = App(config, engine=None if config.api_key else NoKeyEngine())
     server = uvicorn.Server(server_config(create_app(app), port))
 
-    async def open_browser() -> None:
+    async def ready() -> None:
         while not server.started:
             await asyncio.sleep(0.1)
-        webbrowser.open(f"http://127.0.0.1:{port}/")
+        on_ready(f"http://127.0.0.1:{port}/", server)
 
     opener = None
     try:
         await app.start()
-        opener = asyncio.create_task(open_browser())
+        opener = asyncio.create_task(ready())
         print(f"Ohbot działa na http://127.0.0.1:{port}/ (Ctrl+C = wyjście)")
         await server.serve()
     finally:
@@ -123,10 +126,40 @@ async def _web(port: int) -> int:
     return 0
 
 
+def _window(port: int) -> int:
+    try:
+        import webview
+    except ImportError:
+        log.warning("Brak pywebview (uv sync --group desktop), otwieram przeglądarkę")
+        return asyncio.run(_web(port, lambda url, server: webbrowser.open(url)))
+
+    # pywebview must own the main thread, so the server runs in a second one
+    ready, box = threading.Event(), {}
+
+    def on_ready(url, server) -> None:
+        box.update(url=url, server=server)
+        ready.set()
+
+    worker = threading.Thread(target=lambda: box.update(code=asyncio.run(_web(port, on_ready))))
+    worker.start()
+    try:
+        while not ready.wait(0.1):
+            if not worker.is_alive():
+                return box.get("code", 1)
+        webview.create_window("Ohbot", box["url"])
+        webview.start()
+    finally:
+        if "server" in box:
+            box["server"].should_exit = True
+        worker.join()
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="ohbotchat", description="Rozmowa głosowa z robotem Ohbot")
     parser.add_argument("command", nargs="?", choices=["doctor"])
     parser.add_argument("--no-web", action="store_true", help="pętla w terminalu zamiast strony w przeglądarce")
+    parser.add_argument("--window", action="store_true", help="osobne okno zamiast przeglądarki (wymaga pywebview)")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="port strony (tylko 127.0.0.1)")
     args = parser.parse_args(argv)
     try:
@@ -134,7 +167,9 @@ def main(argv: list[str] | None = None) -> int:
             return asyncio.run(_doctor())
         if args.no_web:
             return asyncio.run(_terminal())
-        return asyncio.run(_web(args.port))
+        if args.window:
+            return _window(args.port)
+        return asyncio.run(_web(args.port, lambda url, server: webbrowser.open(url)))
     except KeyboardInterrupt:
         print()
         return 0

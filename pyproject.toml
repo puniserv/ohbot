@@ -18,6 +18,12 @@ dependencies = [
 ohbotchat = "ohbotchat.__main__:main"
 
 [dependency-groups]
+build = [
+    "pyinstaller>=6.22.3",
+]
+desktop = [
+    "pywebview>=6.2.1",
+]
 dev = [
     "httpx>=0.28.1",
     "pytest",

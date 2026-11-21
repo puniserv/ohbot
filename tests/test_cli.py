@@ -65,3 +65,53 @@ async def test_terminal_loop_closes_on_cancel():
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     assert app.log[-1] == "close"
+
+
+def _fake_web(calls):
+    from types import SimpleNamespace
+
+    async def web(port, on_ready):
+        server = SimpleNamespace(should_exit=False)
+        on_ready(f"http://127.0.0.1:{port}/", server)
+        while not server.should_exit:
+            await asyncio.sleep(0.01)
+        calls.append("stopped")
+        return 0
+
+    return web
+
+
+def test_window_opens_a_native_window_and_stops_the_server_when_it_closes(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    import ohbotchat.__main__ as cli
+
+    calls = []
+    webview = SimpleNamespace(create_window=lambda title, url: calls.append(url), start=lambda: calls.append("start"))
+    monkeypatch.setitem(sys.modules, "webview", webview)
+    monkeypatch.setattr(cli, "_web", _fake_web(calls))
+    monkeypatch.setattr(cli.webbrowser, "open", lambda url: calls.append("browser"))
+
+    assert main(["--window", "--port", "9999"]) == 0
+    assert calls == ["http://127.0.0.1:9999/", "start", "stopped"]
+
+
+def test_window_without_pywebview_falls_back_to_the_browser_with_a_warning(monkeypatch, caplog):
+    import sys
+
+    import ohbotchat.__main__ as cli
+
+    calls = []
+
+    async def web(port, on_ready):
+        on_ready(f"http://127.0.0.1:{port}/", None)
+        return 0
+
+    monkeypatch.setitem(sys.modules, "webview", None)
+    monkeypatch.setattr(cli, "_web", web)
+    monkeypatch.setattr(cli.webbrowser, "open", calls.append)
+
+    assert main(["--window", "--port", "9999"]) == 0
+    assert calls == ["http://127.0.0.1:9999/"]
+    assert "pywebview" in caplog.text
