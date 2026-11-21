@@ -1,10 +1,27 @@
+import asyncio
 import sys
 import threading
 from types import SimpleNamespace as NS
 
+import pytest
+
+from ohbotchat import robot as robot_mod
 from ohbotchat.config import load_config
 from ohbotchat.events import EventBus
-from ohbotchat.robot import BOTTOMLIP, EYETURN, HEADTURN, LIDBLINK, TOPLIP, NullDriver, OhbotDriver, Robot
+from ohbotchat.robot import (
+    BOTTOMLIP,
+    EYETILT,
+    EYETURN,
+    GESTURE_FLASH,
+    GESTURE_SPEED,
+    HEADNOD,
+    HEADTURN,
+    LIDBLINK,
+    TOPLIP,
+    NullDriver,
+    OhbotDriver,
+    Robot,
+)
 from ohbotchat.state import State
 
 
@@ -162,3 +179,54 @@ def test_calls_after_close_are_dropped_silently():
     robot.close()
     robot.lips(5, 5)
     robot.set_state(State.LISTENING)
+
+
+GESTURE_EXPECTED = {
+    "yes": [(HEADNOD, 7), (HEADNOD, 3), (HEADNOD, 7), (HEADNOD, 3)],
+    "no": [(HEADTURN, 3), (HEADTURN, 7), (HEADTURN, 3), (HEADTURN, 7)],
+    "surprised": [(LIDBLINK, 10), (HEADNOD, 7)],
+    "happy": [(HEADNOD, 6), (HEADTURN, 6), "flash", (HEADTURN, 4)],
+    "thinking": [(EYETILT, 8), (EYETURN, 7)],
+}
+
+
+def _gesture_calls(steps):
+    return [("eye", *GESTURE_FLASH) if s == "flash" else ("move", *s, GESTURE_SPEED) for s in steps]
+
+
+NEUTRAL_CALLS = [("move", m, p, GESTURE_SPEED) for m, p in ((HEADNOD, 5), (HEADTURN, 5), (EYETURN, 5), (EYETILT, 5), (LIDBLINK, 10))]
+
+
+@pytest.mark.parametrize("name", list(GESTURE_EXPECTED))
+async def test_gesture_driver_sequence_ends_in_neutral(name, monkeypatch):
+    monkeypatch.setattr(robot_mod, "GESTURE_STEP_S", 0)
+    robot, driver, cfg = make()
+    robot.set_state(State.SPEAKING)
+    robot.flush()
+    driver.calls.clear()
+    await robot.gesture(name)
+    robot.flush()
+    assert driver.calls == _gesture_calls(GESTURE_EXPECTED[name]) + NEUTRAL_CALLS + [("eye", *cfg.colours.speaking)]
+
+
+@pytest.mark.parametrize("name", [None, "none", "dance"])
+async def test_unknown_gesture_does_nothing(name):
+    robot, driver, _ = make()
+    robot.flush()
+    driver.calls.clear()
+    await robot.gesture(name)
+    robot.flush()
+    assert driver.calls == []
+
+
+async def test_cancelled_gesture_stops_and_returns_to_neutral(monkeypatch):
+    monkeypatch.setattr(robot_mod, "GESTURE_STEP_S", 60)
+    robot, driver, cfg = make()
+    robot.flush()
+    driver.calls.clear()
+    task = asyncio.create_task(robot.gesture("yes"))
+    await asyncio.sleep(0)
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    robot.flush()
+    assert driver.calls == [("move", HEADNOD, 7, GESTURE_SPEED)] + NEUTRAL_CALLS + [("eye", *cfg.colours.idle)]

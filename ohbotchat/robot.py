@@ -20,6 +20,20 @@ _COLOUR_KEY = {
 }
 RETRY_S = 5.0
 
+GESTURE_STEP_S = 0.25
+GESTURE_SPEED = 8
+GESTURE_FLASH = (10, 10, 0)
+_NEUTRAL = ((HEADNOD, 5), (HEADTURN, 5), (EYETURN, 5), (EYETILT, 5), (LIDBLINK, 10))
+# Each step is held for GESTURE_STEP_S. Directions are unverified on hardware; tune positions here.
+_GESTURES = {
+    "yes": [[(HEADNOD, 7)], [(HEADNOD, 3)], [(HEADNOD, 7)], [(HEADNOD, 3)]],
+    "no": [[(HEADTURN, 3)], [(HEADTURN, 7)], [(HEADTURN, 3)], [(HEADTURN, 7)]],
+    "surprised": [[(LIDBLINK, 10), (HEADNOD, 7)], [], []],
+    # Ohbot has no roll motor, so a "tilt" is a nod plus a turn
+    "happy": [[(HEADNOD, 6), (HEADTURN, 6), "flash"], [(HEADTURN, 4)]],
+    "thinking": [[(EYETILT, 8), (EYETURN, 7)], [], [], []],
+}
+
 
 class RobotDriver(Protocol):
     def connect(self) -> bool: ...
@@ -174,6 +188,26 @@ class Robot:
             self._driver.move(LIDBLINK, 10, 10)
 
         self._submit(run)
+
+    def _gesture_step(self, step: list) -> None:
+        for move in step:
+            if move == "flash":
+                self._driver.eye_colour(*GESTURE_FLASH)
+            else:
+                self._driver.move(*move, GESTURE_SPEED)
+
+    async def gesture(self, name: str | None) -> None:
+        """Sleeps on the event loop, not the worker thread, so lip moves keep flowing; cancel it to cut it short."""
+        steps = _GESTURES.get(name)
+        if not steps:
+            return
+        try:
+            for step in steps:
+                self._submit(self._gesture_step, step)
+                await asyncio.sleep(GESTURE_STEP_S)
+        finally:
+            self._submit(self._gesture_step, _NEUTRAL)
+            self._submit(self._apply_colour)
 
     def glance(self, now: float) -> None:
         self._submit(self._driver.move, HEADTURN, self._rng.uniform(3, 7), 3)
