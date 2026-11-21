@@ -254,7 +254,7 @@ class App:
     def _ignore(self, reason: str) -> None:
         # never the transcript: it has not been through moderation
         self.bus.publish("info", text=reason)
-        self._act("ignore")
+        self._act("ignore" if self.mic.running else "cancel")  # the mic may have been lost during STT
 
     async def _respond(self, heard: str) -> None:
         """The rest of a turn once the child's words are known as text."""

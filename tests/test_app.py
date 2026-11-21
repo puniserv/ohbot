@@ -687,3 +687,27 @@ async def test_switch_to_ptt_mid_turn_ends_idle_with_mic_off():
     speaker.stop()
     await settle(app)
     assert app.state == "idle" and not app.mic.running
+
+
+@pytest.mark.parametrize("mode,transcript", [("wake", "co tam"), ("continuous", "")])
+async def test_mic_lost_during_stt_then_ignored_ends_idle(mode, transcript):
+    # regression: _ignore went to LISTENING although the mic was already off
+    engine = Recorder(transcript)
+    gate = asyncio.Event()
+    orig = engine.transcribe
+
+    async def blocked(pcm):
+        await gate.wait()
+        text = await orig(pcm)
+        if not text:
+            raise EngineError("empty")
+        return text
+
+    engine.transcribe = blocked
+    app, mic = hands_free(mode, engine)
+    await mic.say()
+    mic.streams[-1].finished()
+    await asyncio.sleep(0)
+    gate.set()
+    await settle(app)
+    assert app.state == "idle" and not app.mic.running
