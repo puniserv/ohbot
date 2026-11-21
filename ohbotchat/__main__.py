@@ -96,7 +96,7 @@ class NoKeyEngine:
     async def _fail(self, *args, **kwargs):
         raise EngineError("nokey", "Brak klucza API – dodaj OPENAI_API_KEY do pliku .env")
 
-    transcribe = respond = synthesize = _fail
+    transcribe = respond = synthesize = say = _fail
 
 
 async def _web(port: int, on_ready) -> int:

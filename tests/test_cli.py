@@ -17,7 +17,7 @@ async def test_no_key_engine_reports_nokey_error_instead_of_crashing():
     from ohbotchat.__main__ import NoKeyEngine
     from ohbotchat.engine import EngineError
 
-    for call in (NoKeyEngine().transcribe(b""), NoKeyEngine().respond("", []), NoKeyEngine().synthesize("x", publish=False)):
+    for call in (NoKeyEngine().transcribe(b""), NoKeyEngine().respond("", []), NoKeyEngine().synthesize("x", publish=False), NoKeyEngine().say("x")):
         with pytest.raises(EngineError) as e:
             await call
         assert e.value.kind == "nokey"
