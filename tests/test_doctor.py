@@ -64,7 +64,7 @@ def cfg_with_key():
     return cfg
 
 
-async def run(client, cfg=None, interactive=False, driver=None, speaker=None, mic_fn=mic, camera_fn=lambda cfg: None):
+async def run(client, cfg=None, interactive=False, driver=None, speaker=None, mic_fn=mic, camera_fn=lambda cfg: (True, "kamera 0 działa")):
     return await run_doctor(
         cfg or cfg_with_key(),
         interactive=interactive,
@@ -170,7 +170,7 @@ async def test_api_error_is_not_reported_as_bad_key():
 
 
 async def test_camera_problem_is_reported_with_a_hint():
-    res = await run(FakeClient(), camera_fn=lambda cfg: "kamera 0 nie zwraca obrazu")
+    res = await run(FakeClient(), camera_fn=lambda cfg: (False, "kamera 0 nie zwraca obrazu"))
     assert res[8].name == "Kamera" and res[8].ok is False
     assert res[8].detail == "kamera 0 nie zwraca obrazu" and "Prywatność" in res[8].hint
 

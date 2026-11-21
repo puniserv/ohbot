@@ -54,8 +54,8 @@ def _robot_motion(driver) -> None:
     driver.eye_colour(0, 0, 3)
 
 
-def _default_camera(config: Config) -> str | None:
-    """None when the model loads and the camera returns a frame, else what failed."""
+def _default_camera(config: Config) -> tuple[bool | None, str]:
+    """(ok, detail): True when the model loads and the camera returns a frame."""
     import cv2
 
     from .vision import load_detector
@@ -63,13 +63,15 @@ def _default_camera(config: Config) -> str | None:
     try:
         load_detector()
     except cv2.error as e:
-        return f"model YuNet nie wczytany ({e})"
+        return False, f"model YuNet nie wczytany ({e})"
     cap = cv2.VideoCapture(config.camera.index)
     try:
         ok = cap.isOpened() and cap.read()[0]
     finally:
         cap.release()
-    return None if ok else f"kamera {config.camera.index} nie zwraca obrazu"
+    if not ok:
+        return False, f"kamera {config.camera.index} nie zwraca obrazu"
+    return True, f"kamera {config.camera.index} działa, model wczytany"
 
 
 async def run_doctor(
@@ -79,7 +81,7 @@ async def run_doctor(
     driver=None,
     speaker=None,
     mic: Callable[[bool], tuple[list[str], float | None]] = _default_mic,
-    camera: Callable[[Config], str | None] = _default_camera,
+    camera: Callable[[Config], tuple[bool | None, str]] = _default_camera,
 ) -> list[CheckResult]:
     if client is None and config.api_key:
         import openai
@@ -196,10 +198,8 @@ async def run_doctor(
         name = "Kamera"
         if not config.camera.enabled:
             return CheckResult(name, None, f"{SKIPPED} (wyłączona w Ustawieniach)")
-        problem = await asyncio.to_thread(camera, config)
-        if problem:
-            return CheckResult(name, False, problem, CAMERA_HINT)
-        return CheckResult(name, True, f"kamera {config.camera.index} działa, model wczytany")
+        ok, detail = await asyncio.to_thread(camera, config)
+        return CheckResult(name, ok, detail, CAMERA_HINT if ok is False else "")
 
     async def guarded(name: str, fn: Callable[[], Awaitable[CheckResult] | CheckResult]) -> CheckResult:
         try:

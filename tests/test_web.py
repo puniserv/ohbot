@@ -509,3 +509,13 @@ def test_every_settings_field_in_the_page_is_an_editable_key(client):
     keys = re.findall(r'data-key="(\w+)\.(\w+)"', client.get("/").text)
     assert all(k in EDITABLE[s] for s, k in keys)
     assert {k for s, k in keys if s == "camera"} == set(EDITABLE["camera"])
+
+
+async def test_web_doctor_reports_a_camera_that_is_still_starting():
+    from ohbotchat import web
+
+    app = FakeApp()
+    app.config.api_key = None
+    app.vision.ok = None
+    kamera = next(r for r in await web._run_doctor(app) if r.name == "Kamera")
+    assert kamera.ok is None and kamera.detail == "kamera uruchamia się"

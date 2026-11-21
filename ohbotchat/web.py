@@ -39,7 +39,12 @@ class _RunningRobot:
 
 def _running_camera(app):
     """The app's vision thread holds the camera and a second open fails on Windows, so doctor only reports its state."""
-    return lambda _config: None if app.vision.ok else "kamera niedostępna w działającej aplikacji"
+    def check(_config):
+        if app.vision.ok is None:  # before the first frame
+            return None, "kamera uruchamia się"
+        return app.vision.ok, "kamera działa" if app.vision.ok else "kamera niedostępna w działającej aplikacji"
+
+    return check
 
 
 async def _run_doctor(app) -> list:
