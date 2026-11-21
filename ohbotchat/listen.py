@@ -98,7 +98,13 @@ class Listener:
         self._chunks: list[bytes] = []
         self._stream = None
 
+    @property
+    def recording(self) -> bool:
+        return self._stream is not None
+
     def start_ptt(self) -> None:
+        if self._stream is not None:  # key auto-repeat must not restart the recording
+            return
         self._chunks = []
         self._stream = self._factory(self._chunks.append)
         self._stream.start()

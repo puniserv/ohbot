@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Polish voice chat for the Ohbot robot via OpenAI"
 requires-python = ">=3.11"
 dependencies = [
-    "openai>=1.50",
+    "openai>=3.57",
     "sounddevice",
     "numpy",
     "webrtcvad-wheels",

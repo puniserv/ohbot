@@ -21,8 +21,12 @@ _TABLE: dict[tuple[State, str], State] = {
     (State.SPEAKING, "done"): State.IDLE,
     (State.SPEAKING, "stop"): State.LISTENING,
     (State.ERROR, "done"): State.IDLE,
+    (State.ERROR, "stop"): State.LISTENING,
     (State.ERROR, "listen"): State.LISTENING,
 }
+
+for _s in (State.LISTENING, State.TRANSCRIBING, State.THINKING, State.SPEAKING, State.ERROR):
+    _TABLE[(_s, "cancel")] = State.IDLE  # interrupt without re-opening the mic (push-to-talk)
 
 
 def transition(state: State, action: str) -> State:

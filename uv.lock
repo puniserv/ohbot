@@ -779,7 +779,7 @@ requires-dist = [
     { name = "fastapi" },
     { name = "numpy" },
     { name = "ohbot" },
-    { name = "openai", specifier = ">=1.50" },
+    { name = "openai", specifier = ">=3.57" },
     { name = "sounddevice" },
     { name = "uvicorn" },
     { name = "webrtcvad-wheels" },

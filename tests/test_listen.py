@@ -97,3 +97,13 @@ def test_ptt_frames_after_stop_are_dropped():
     streams[0].cb(b"late")
     lis.start_ptt()
     assert lis.stop_ptt() == b""
+
+
+def test_start_ptt_twice_keeps_first_recording():
+    streams = []
+    lis = Listener(load_config(env={}), EventBus(), lambda cb: streams.append(FakeStream(cb)) or streams[-1])
+    lis.start_ptt()
+    streams[0].cb(b"ab")
+    lis.start_ptt()  # key auto-repeat
+    assert len(streams) == 1 and lis.recording
+    assert lis.stop_ptt() == b"ab" and not lis.recording

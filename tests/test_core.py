@@ -53,3 +53,30 @@ def test_state_transitions():
     assert transition(State.IDLE, "listen") == State.LISTENING
     assert transition(State.THINKING, "error") == State.ERROR
     assert transition(State.IDLE, "bogus") == State.IDLE
+
+
+async def test_bus_unsubscribe():
+    bus = EventBus()
+    a, b = bus.subscribe(), bus.subscribe()
+    bus.unsubscribe(a)
+    bus.publish("info")
+    assert a.empty() and not b.empty()
+
+
+async def test_bus_bound_loop_is_safe_before_first_subscribe():
+    bus = EventBus()
+    bus.bind(asyncio.get_running_loop())
+    t = threading.Thread(target=lambda: bus.publish("info", n=0))
+    t.start()
+    t.join()
+    q = bus.subscribe()
+    t = threading.Thread(target=lambda: bus.publish("info", n=1))
+    t.start()
+    got = {(await asyncio.wait_for(q.get(), 1)).data["n"] for _ in range(2)}  # n=0 was queued before subscribe
+    t.join()
+    assert got == {0, 1}
+
+
+def test_cancel_goes_idle_from_busy_states():
+    for st in (State.TRANSCRIBING, State.THINKING, State.SPEAKING, State.LISTENING, State.ERROR):
+        assert transition(st, "cancel") == State.IDLE

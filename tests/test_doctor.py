@@ -100,7 +100,7 @@ async def test_missing_key_reports_with_hint_and_no_crash():
 
 async def test_quota_detected_by_minimal_chat_request():
     err = openai.RateLimitError(
-        "quota", response=_resp(429), body={"error": {"code": "insufficient_quota", "message": "x"}}
+        "quota", response=_resp(429), body={"code": "insufficient_quota", "message": "x"}
     )
     client = FakeClient(chat_error=err)
     res = await run(client)
@@ -145,3 +145,9 @@ async def test_check_exception_becomes_failure():
 
     res = await run(FakeClient(), mic_fn=boom)
     assert res[5].ok is False and "no audio backend" in res[5].detail
+
+
+async def test_api_error_is_not_reported_as_bad_key():
+    err = openai.InternalServerError("boom", response=_resp(500), body=None)
+    res = await run(FakeClient(models_error=err))
+    assert res[2].ok is False and "odrzucony" not in res[2].detail and "błąd" in res[2].detail

@@ -20,6 +20,9 @@ class Fallback:
         path = self._dir / f"{key}.pcm"
         return path.read_bytes() if path.is_file() else None
 
+    def complete(self) -> bool:
+        return all(self.get(k) is not None for k in PHRASES)
+
     async def ensure(self, engine) -> None:
         """Generates missing phrases via `engine.synthesize`; offline just leaves them missing."""
         self._dir.mkdir(parents=True, exist_ok=True)
@@ -27,7 +30,7 @@ class Fallback:
             if self.get(key) is not None:
                 continue
             try:
-                pcm = await engine.synthesize(text)
+                pcm = await engine.synthesize(text, publish=False)
             except EngineError:
                 continue
             (self._dir / f"{key}.pcm").write_bytes(pcm)

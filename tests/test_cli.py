@@ -28,10 +28,14 @@ class FakeApp:
     def ptt_start(self):
         self.log.append("ptt_start")
 
-    async def ptt_stop(self):
+    def ptt_stop(self):
         self.log.append("ptt_stop")
-        self.bus.publish("heard", text="Cześć")
-        self.bus.publish("reply", text="Hej!")
+
+        async def turn():
+            self.bus.publish("heard", text="Cześć")
+            self.bus.publish("reply", text="Hej!")
+
+        return asyncio.create_task(turn())
 
     async def close(self):
         self.log.append("close")

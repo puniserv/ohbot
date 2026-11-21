@@ -60,7 +60,7 @@ async def run_doctor(
     if client is None and config.api_key:
         import openai
 
-        client = openai.AsyncOpenAI(api_key=config.api_key)
+        client = openai.AsyncOpenAI(api_key=config.api_key, max_retries=0)
     c = config.openai
     api: dict = {}  # shared result of the one models.list() call behind checks 2-4
 
@@ -96,7 +96,9 @@ async def run_doctor(
             return CheckResult(name, True, "klucz przyjęty")
         if e.kind == "network":
             return CheckResult(name, False, f"{SKIPPED}: brak połączenia", "Najpierw napraw połączenie z internetem.")
-        return CheckResult(name, False, f"klucz odrzucony ({e})", "Sprawdź OPENAI_API_KEY w .env; klucz mógł wygasnąć albo zostać odwołany.")
+        if e.kind == "auth":
+            return CheckResult(name, False, f"klucz odrzucony ({e})", "Sprawdź OPENAI_API_KEY w .env; klucz mógł wygasnąć albo zostać odwołany.")
+        return CheckResult(name, False, f"API zwróciło błąd ({e})", "Spróbuj ponownie za chwilę; jeśli błąd wraca, sprawdź status.openai.com.")
 
     def models() -> CheckResult:
         name = "Modele z config.toml"
@@ -119,6 +121,7 @@ async def run_doctor(
                     messages=[{"role": "user", "content": "ok"}],
                     max_completion_tokens=16,
                     timeout=c.timeout_s,
+                    **({"reasoning_effort": c.reasoning_effort} if c.reasoning_effort else {}),
                 )
         except EngineError as e:
             if e.kind == "quota":

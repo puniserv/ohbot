@@ -1,6 +1,10 @@
+import sys
+import threading
+from types import SimpleNamespace as NS
+
 from ohbotchat.config import load_config
 from ohbotchat.events import EventBus
-from ohbotchat.robot import BOTTOMLIP, EYETURN, HEADTURN, LIDBLINK, TOPLIP, NullDriver, Robot
+from ohbotchat.robot import BOTTOMLIP, EYETURN, HEADTURN, LIDBLINK, TOPLIP, NullDriver, OhbotDriver, Robot
 from ohbotchat.state import State
 
 
@@ -102,3 +106,51 @@ def test_close_closes_driver():
     robot, driver, _ = make()
     robot.close()
     assert driver.closed
+
+
+def test_close_switches_eyes_off_and_closes_lips_first():
+    robot, driver, _ = make()
+    robot.close()
+    assert driver.calls[-3:] == [("eye", 0, 0, 0), ("move", TOPLIP, 5, 10), ("move", BOTTOMLIP, 5, 10)]
+    assert driver.closed
+
+
+def test_tick_skips_connect_while_one_is_in_flight():
+    gate = threading.Event()
+
+    class Slow(NullDriver):
+        n = 0
+
+        def connect(self):
+            Slow.n += 1
+            if Slow.n > 1:
+                gate.wait(2)
+            return super().connect()
+
+    driver = Slow(connected=False)
+    robot, _, _ = make(driver)
+    robot.tick(100)
+    robot.tick(200)
+    gate.set()
+    robot.flush()
+    assert Slow.n == 2
+
+
+def test_ohbot_driver_reconnect_after_unplug_reports_disconnected(monkeypatch):
+    class FakeOhbot:
+        connected, port, plugged = True, "/dev/x", True
+        ser = NS(close=lambda: None)
+
+        def init(self):
+            # like the real library: only ever sets connected/port, never clears them
+            if self.plugged:
+                self.connected, self.port = True, "/dev/x"
+
+    fake = FakeOhbot()
+    monkeypatch.setitem(sys.modules, "ohbot", NS(ohbot=fake))
+    d = OhbotDriver()
+    assert d.connect() is True
+    fake.plugged = False
+    assert d.connect() is False
+    fake.plugged = True
+    assert d.connect() is True

@@ -13,7 +13,9 @@ tts_model = "gpt-4o-mini-tts"
 tts_voice = "marin"
 moderation_model = "omni-moderation-latest"
 max_tokens = 150
-timeout_s = 20
+timeout_s = 10
+# gpt-5.x are reasoning models: reasoning tokens would eat max_tokens and leave an empty reply.
+reasoning_effort = "none"
 
 [conversation]
 persona = "dzieci"
@@ -44,3 +46,4 @@ error = [10, 0, 0]
 # Flip a lip if the mouth opens the wrong way on the real robot.
 lip_invert_top = false
 lip_invert_bottom = false
+lip_delay_ms = 0

@@ -13,6 +13,14 @@ class EventBus:
         self._subs: list[asyncio.Queue[Event]] = []
         self._loop: asyncio.AbstractEventLoop | None = None
 
+    def bind(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Pins the loop that publish() from other threads targets, even before anyone subscribes."""
+        self._loop = loop
+
+    def unsubscribe(self, q: asyncio.Queue[Event]) -> None:
+        if q in self._subs:
+            self._subs.remove(q)
+
     def subscribe(self) -> asyncio.Queue[Event]:
         # the first subscriber pins the loop that publish() from other threads targets
         if self._loop is None:

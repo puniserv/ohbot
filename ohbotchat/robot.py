@@ -23,7 +23,6 @@ RETRY_S = 5.0
 
 class RobotDriver(Protocol):
     def connect(self) -> bool: ...
-    def connected(self) -> bool: ...
     def move(self, motor: int, pos: float, speed: int) -> None: ...  # pos 0..10
     def eye_colour(self, r: int, g: int, b: int) -> None: ...
     def close(self) -> None: ...
@@ -37,14 +36,9 @@ class NullDriver:
         self.calls: list[tuple] = []
         self.fail: Exception | None = None
         self.closed = False
-        self._on = False
 
     def connect(self) -> bool:
-        self._on = self.available
-        return self._on
-
-    def connected(self) -> bool:
-        return self._on
+        return self.available
 
     def _record(self, call: tuple) -> None:
         if self.fail:
@@ -74,13 +68,19 @@ class OhbotDriver:
 
                 self._o = ohbot
             else:
+                self._forget_port()
                 self._o.init()
             return bool(self._o.connected)
         except Exception:
             return False
 
-    def connected(self) -> bool:
-        return self._o is not None and bool(self._o.connected)
+    def _forget_port(self) -> None:
+        # init() only ever sets connected/port, so after an unplug a retry would "succeed" on the dead port
+        try:
+            self._o.ser.close()
+        except Exception:
+            pass
+        self._o.connected, self._o.port = False, ""
 
     @property
     def port(self) -> str:
@@ -108,6 +108,7 @@ class Robot:
         self._connected: bool | None = None
         self._next_blink = self._next_glance = self._next_retry = 0.0
         self._recentre_at: float | None = None
+        self._connecting = False
 
     @property
     def connected(self) -> bool:
@@ -131,6 +132,8 @@ class Robot:
         except Exception as e:
             self._set_connected(False, str(e))
             return
+        finally:
+            self._connecting = False
         self._set_connected(ok)
         if ok:
             self._apply_colour()
@@ -176,8 +179,9 @@ class Robot:
 
     def tick(self, now: float) -> None:
         if not self._connected:
-            if now >= self._next_retry:
+            if now >= self._next_retry and not self._connecting:
                 self._next_retry = now + RETRY_S
+                self._connecting = True
                 self._pool.submit(self._connect)
             return
         if self._recentre_at is not None and now >= self._recentre_at:
@@ -200,6 +204,13 @@ class Robot:
 
     def close(self) -> None:
         def run() -> None:
+            try:
+                if self._connected:
+                    self._driver.eye_colour(0, 0, 0)
+                    self._driver.move(TOPLIP, 5, 10)
+                    self._driver.move(BOTTOMLIP, 5, 10)
+            except Exception:
+                pass
             try:
                 self._driver.close()
             except Exception:

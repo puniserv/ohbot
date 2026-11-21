@@ -112,7 +112,7 @@ async def test_moderated_reply_never_reaches_tts():
 
 def _quota():
     return openai.RateLimitError(
-        "quota", response=_resp(429), body={"error": {"code": "insufficient_quota", "type": "insufficient_quota"}}
+        "quota", response=_resp(429), body={"code": "insufficient_quota", "type": "insufficient_quota"}
     )
 
 
@@ -122,7 +122,7 @@ def _quota():
         (lambda: openai.APIConnectionError(request=httpx2.Request("POST", "http://x")), "network"),
         (lambda: openai.APITimeoutError(request=httpx2.Request("POST", "http://x")), "network"),
         (_quota, "quota"),
-        (lambda: openai.RateLimitError("slow down", response=_resp(429), body={"error": {"code": "rate_limit_exceeded"}}), "other"),
+        (lambda: openai.RateLimitError("slow down", response=_resp(429), body={"code": "rate_limit_exceeded"}), "other"),
         (lambda: openai.AuthenticationError("bad key", response=_resp(401), body=None), "auth"),
     ],
 )
@@ -138,3 +138,22 @@ async def test_synthesize_returns_pcm():
     eng, _ = make(client)
     assert await eng.synthesize("Hej") == b"\x01\x00" * 10
     assert dict(client.calls)["tts"]["input"] == "Hej"
+
+
+async def test_reasoning_effort_passed_and_omitted_when_empty():
+    client = FakeClient()
+    eng, _ = make(client)
+    await eng.respond("x", [])
+    assert dict(client.calls)["chat"]["reasoning_effort"] == "none"
+    client = FakeClient()
+    eng, _ = make(client)
+    eng._cfg.openai.reasoning_effort = ""
+    await eng.respond("x", [])
+    assert "reasoning_effort" not in dict(client.calls)["chat"]
+
+
+async def test_synthesize_without_publish_is_silent():
+    eng, bus = make(FakeClient())
+    q = bus.subscribe()
+    await eng.synthesize("Hej", publish=False)
+    assert q.empty()

@@ -21,9 +21,7 @@ def _wav(pcm16k: bytes) -> bytes:
 
 
 def _is_quota(e: openai.RateLimitError) -> bool:
-    body = e.body if isinstance(e.body, dict) else {}
-    inner = body.get("error") if isinstance(body.get("error"), dict) else body
-    return "insufficient_quota" in (getattr(e, "code", None), inner.get("code"), inner.get("type"))
+    return e.code == "insufficient_quota"
 
 
 @contextmanager
@@ -48,11 +46,13 @@ class ChainEngine:
     def __init__(self, client, config: Config, bus: EventBus) -> None:
         self._client, self._cfg, self._bus = client, config, bus
 
-    async def _stage(self, name: str, call: Callable[[], Awaitable]):
-        self._bus.publish("stage", name=name, status="start")
+    async def _stage(self, name: str, call: Callable[[], Awaitable], publish: bool = True):
+        if publish:
+            self._bus.publish("stage", name=name, status="start")
         with _mapped_errors():
             result = await call()
-        self._bus.publish("stage", name=name, status="done")
+        if publish:
+            self._bus.publish("stage", name=name, status="done")
         return result
 
     def _persona(self) -> str:
@@ -82,13 +82,14 @@ class ChainEngine:
         if r.results[0].flagged:
             raise EngineError("moderated")
 
-    async def synthesize(self, text: str) -> bytes:
+    async def synthesize(self, text: str, publish: bool = True) -> bytes:
         c = self._cfg.openai
         speech = await self._stage(
             "tts",
             lambda: self._client.audio.speech.create(
                 model=c.tts_model, voice=c.tts_voice, input=text, response_format="pcm", timeout=c.timeout_s
             ),
+            publish,
         )
         return speech.content
 
@@ -99,7 +100,11 @@ class ChainEngine:
         r = await self._stage(
             "chat",
             lambda: self._client.chat.completions.create(
-                model=c.chat_model, messages=messages, max_completion_tokens=c.max_tokens, timeout=c.timeout_s
+                model=c.chat_model,
+                messages=messages,
+                max_completion_tokens=c.max_tokens,
+                timeout=c.timeout_s,
+                **({"reasoning_effort": c.reasoning_effort} if c.reasoning_effort else {}),
             ),
         )
         text = (r.choices[0].message.content or "").strip()

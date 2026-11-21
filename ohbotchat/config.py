@@ -14,7 +14,8 @@ class OpenAIConfig:
     tts_voice: str = "marin"
     moderation_model: str = "omni-moderation-latest"
     max_tokens: int = 150
-    timeout_s: float = 20
+    timeout_s: float = 10
+    reasoning_effort: str = "none"  # "" omits the parameter (non-reasoning chat models reject it)
 
 
 @dataclass
@@ -57,6 +58,7 @@ class RobotConfig:
     # real motor direction of the lips is unverified; flip here if the mouth moves the wrong way
     lip_invert_top: bool = False
     lip_invert_bottom: bool = False
+    lip_delay_ms: int = 0  # lips can lead the sound by the output latency; delay them to match
 
 
 @dataclass
