@@ -109,13 +109,20 @@ class LevelMeter:
 def _mic_stream(on_chunk: Callable[[bytes], None], on_finished: Callable[[], None] | None = None):
     import sounddevice as sd
 
+    # cffi rejects anything but None from these callbacks, and call_soon_threadsafe returns a Handle
+    def callback(indata, frames, time, status) -> None:
+        on_chunk(bytes(indata))
+
+    def finished() -> None:
+        on_finished()
+
     return sd.RawInputStream(
         samplerate=RATE,
         channels=1,
         dtype="int16",
         blocksize=FRAME_BYTES // 2,
-        callback=lambda indata, frames, time, status: on_chunk(bytes(indata)),
-        finished_callback=on_finished,
+        callback=callback,
+        finished_callback=finished if on_finished else None,
     )
 
 

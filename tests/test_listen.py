@@ -137,3 +137,16 @@ def test_start_ptt_failure_closes_the_stream_and_allows_a_retry():
     with pytest.raises(OSError):
         lis.start_ptt()
     assert not lis.recording and streams[0].log == ["close"]
+
+
+def test_mic_stream_callbacks_return_none(monkeypatch):
+    # regression: cffi rejects a non-None result from PortAudio's void finished callback
+    import sounddevice as sd
+
+    from ohbotchat.listen import _mic_stream
+
+    seen = {}
+    monkeypatch.setattr(sd, "RawInputStream", lambda **kw: seen.update(kw))
+    _mic_stream(lambda chunk: "handle", lambda: "handle")
+    assert seen["callback"](b"\x00\x00", 1, None, None) is None
+    assert seen["finished_callback"]() is None
