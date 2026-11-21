@@ -62,7 +62,7 @@ class FakeApp:
         self.calls.append("greet")
 
     def ready(self):
-        return self.state == "idle"
+        return self.state in ("idle", "listening")
 
     def manual_gesture(self, name):
         self.calls.append(f"gesture:{name}")

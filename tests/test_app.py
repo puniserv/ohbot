@@ -916,8 +916,30 @@ async def test_hands_free_greeting_mutes_the_mic_and_listens_again():
 async def test_ready_only_when_idle_and_free():
     app, _ = make()
     assert app.ready()
-    app.ptt_start()
+    app.ptt_start()  # LISTENING, but a child is talking
     assert not app.ready()
+
+
+async def test_hands_free_resting_in_listening_is_ready():
+    app, mic = hands_free("continuous")
+    assert app.state == "listening" and app.ready()
+    await mic.say()
+    assert not app.ready()  # the utterance is being handled
+    await settle(app)
+    assert app.ready()
+
+
+async def test_open_test_panel_mutes_the_hands_free_mic():
+    engine = Recorder()
+    app, mic = hands_free("continuous", engine)
+    app.robot.hold_idle = True  # servo whine from slider moves must not open an utterance
+    await mic.say()
+    await settle(app)
+    assert engine.transcribed == 0 and app.state == "listening"
+    app.robot.hold_idle = False
+    await mic.say()
+    await settle(app)
+    assert engine.transcribed == 1
 
 
 class SlowEngine(FakeEngine):

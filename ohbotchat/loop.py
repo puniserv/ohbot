@@ -28,8 +28,9 @@ class MicLoop:
         on_barge: Callable[[], None],
         on_lost: Callable[[], None],
         stream_factory: Callable | None = None,
+        muted: Callable[[], bool] = lambda: False,
     ) -> None:
-        self._cfg, self._state, self._factory = config, state, stream_factory or _mic_stream
+        self._cfg, self._state, self._factory, self._muted = config, state, stream_factory or _mic_stream, muted
         self._on_utterance, self._on_barge, self._on_lost = on_utterance, on_barge, on_lost
         self._bus = bus
         self._meter = LevelMeter(bus)
@@ -127,7 +128,7 @@ class MicLoop:
         else:
             self._barged = False
         self._loud.clear()
-        if state != State.LISTENING or now < self._tail_until:
+        if state != State.LISTENING or now < self._tail_until or self._muted():
             self.segmenter.reset()
             return
         if utterance := self.segmenter.feed(frame):

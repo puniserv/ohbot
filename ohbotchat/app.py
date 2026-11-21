@@ -36,7 +36,10 @@ class App:
         self.robot = robot or Robot(OhbotDriver(), config, self.bus)
         self.fallback = fallback or Fallback(self._fallback_dir())
         self.listener = listener or Listener(config, self.bus)
-        self.mic = MicLoop(config, self.bus, lambda: self.state, self.start_turn, self._barge_in, self._mic_lost, mic_stream)
+        self.mic = MicLoop(
+            config, self.bus, lambda: self.state, self.start_turn, self._barge_in, self._mic_lost, mic_stream,
+            muted=lambda: self.robot.hold_idle,
+        )
         self.state = State.IDLE
         self.history: list[dict] = []
         self._task: asyncio.Task | None = None
@@ -84,8 +87,11 @@ class App:
             self._ensure_fallback()
 
     def ready(self) -> bool:
-        """Manual test commands (motors, test sentence) run only while the robot does nothing else."""
-        return self.state == State.IDLE and not self._busy()
+        """Manual test commands (motors, test sentence) run only while the robot does nothing else.
+
+        Hands-free modes rest in LISTENING, so that counts too unless a child is holding the button.
+        """
+        return self.state in (State.IDLE, State.LISTENING) and not self._busy() and not self.listener.recording
 
     def manual_gesture(self, name: str) -> None:
         if self._gesture:
