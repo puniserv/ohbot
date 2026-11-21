@@ -59,10 +59,6 @@ class App:
         await asyncio.gather(*tasks, return_exceptions=True)
         await asyncio.to_thread(self.robot.close)
 
-    async def wait_background(self) -> None:
-        if self._ensure_task:
-            await asyncio.gather(self._ensure_task, return_exceptions=True)
-
     def _ensure_fallback(self) -> None:
         if self._ensure_task is None or self._ensure_task.done():
             self._ensure_task = asyncio.create_task(self._ensure_phrases())
@@ -88,7 +84,12 @@ class App:
         if self.state in (State.TRANSCRIBING, State.THINKING, State.SPEAKING, State.ERROR):
             self.stop(relisten=True)
         self._act("listen")
-        self.listener.start_ptt()
+        try:
+            self.listener.start_ptt()
+        except Exception as e:
+            log.exception("microphone unavailable")
+            self.bus.publish("error", kind="other", message=f"Nie mogę włączyć mikrofonu: {e}")
+            self._act("cancel")
 
     def ptt_stop(self) -> asyncio.Task | None:
         """Ends the recording and starts the turn in its own task; None if nothing was recording."""

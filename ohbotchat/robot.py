@@ -109,6 +109,7 @@ class Robot:
         self._next_blink = self._next_glance = self._next_retry = 0.0
         self._recentre_at: float | None = None
         self._connecting = False
+        self._closed = False
 
     @property
     def connected(self) -> bool:
@@ -139,6 +140,8 @@ class Robot:
             self._apply_colour()
 
     def _submit(self, fn, *args) -> None:
+        if self._closed:  # delayed lip timers can outlive close()
+            return
         self._pool.submit(self._guard, fn, *args)
 
     def _guard(self, fn, *args) -> None:
@@ -203,6 +206,8 @@ class Robot:
             await asyncio.sleep(0.25)
 
     def close(self) -> None:
+        self._closed = True
+
         def run() -> None:
             try:
                 if self._connected:

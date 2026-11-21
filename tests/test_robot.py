@@ -154,3 +154,11 @@ def test_ohbot_driver_reconnect_after_unplug_reports_disconnected(monkeypatch):
     assert d.connect() is False
     fake.plugged = True
     assert d.connect() is True
+
+
+def test_calls_after_close_are_dropped_silently():
+    # regression guard: lip timers firing after close() hit the shut-down pool and raised RuntimeError
+    robot, driver, _ = make()
+    robot.close()
+    robot.lips(5, 5)
+    robot.set_state(State.LISTENING)

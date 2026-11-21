@@ -71,10 +71,12 @@ class FakeFallback:
 
 
 class FakeListener:
-    def __init__(self):
-        self.recording, self.starts = False, 0
+    def __init__(self, fail=None):
+        self.recording, self.starts, self.fail = False, 0, fail
 
     def start_ptt(self):
+        if self.fail:
+            raise self.fail
         self.starts += 1
         self.recording = True
 
@@ -261,13 +263,12 @@ async def test_missing_fallback_phrases_are_retried_after_a_good_turn():
     fb = FakeFallback(complete=False)
     app, _ = make(fallback=fb)
     await app.handle_utterance(LONG_ENOUGH)
-    await app.wait_background()
+    await app._ensure_task
     assert fb.ensured == 1
     fb2 = FakeFallback(complete=True)
     app, _ = make(fallback=fb2)
     await app.handle_utterance(LONG_ENOUGH)
-    await app.wait_background()
-    assert fb2.ensured == 0
+    assert app._ensure_task is None and fb2.ensured == 0
 
 
 def test_default_engine_does_not_retry_in_sdk():
@@ -303,4 +304,14 @@ async def test_stop_while_fallback_plays_does_not_stick_in_error():
     assert app.state == "error"
     app.stop()
     await asyncio.gather(task, return_exceptions=True)
+    assert app.state == "idle"
+
+
+async def test_ptt_start_without_mic_publishes_error_and_stays_idle():
+    app, _ = make()
+    app.listener = FakeListener(fail=OSError("no input device"))
+    q = app.bus.subscribe()
+    app.ptt_start()
+    events = drain(q)
+    assert [e.data["kind"] for e in events if e.type == "error"] == ["other"]
     assert app.state == "idle"
