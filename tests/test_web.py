@@ -37,6 +37,11 @@ class FakeApp:
         self.vision = type("V", (), {"ok": True})()
         self.closed = 0
         self.mic_error = None
+        self.asleep = False
+
+    async def set_asleep(self, value):
+        self.calls.append(f"asleep:{value}")
+        self.asleep = value
 
     def set_mode(self, mode):
         self.calls.append(f"mode:{mode}")
@@ -532,3 +537,30 @@ def test_calibrate_reports_its_result_as_a_toast(client, app):
         while (msg := ws.receive_json())["type"] != "error":
             pass
     assert app.calls == ["calibrate"] and msg["data"]["message"] == "Skalibrowano"
+
+
+def test_sleep_toggle_reaches_the_app_and_is_in_the_snapshot(client, app):
+    with connect(client) as ws:
+        assert snapshot(ws)["asleep"] is False
+        ws.send_json({"cmd": "sleep", "asleep": True})
+        ws.send_json({"cmd": "sleep", "asleep": "yes"})
+        ws.send_json({"cmd": "sleep"})
+        sync(ws, app)
+        ws.send_json({"cmd": "sleep", "asleep": False})
+        sync(ws, app)
+    assert app.calls == ["asleep:True", "asleep:False"]
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [{"cmd": "ptt_start"}, {"cmd": "new"}, {"cmd": "gesture", "name": "yes"}, {"cmd": "motor", "motor": 1, "pos": 5},
+     {"cmd": "neutral"}, {"cmd": "calibrate"}, {"cmd": "say", "text": "a"}, {"cmd": "voice_sample", "voice": "ash"}],
+)
+def test_talk_and_test_commands_are_rejected_while_asleep(client, app, msg):
+    app.asleep = True
+    with connect(client) as ws:
+        snapshot(ws)
+        ws.send_json(msg)
+        e = ws.receive_json()
+    assert e["type"] == "error" and "śpi" in e["data"]["message"]
+    assert app.calls == [] and app.robot.calls == []

@@ -444,3 +444,30 @@ def test_lost_face_recentres_once_then_glances_resume():
     robot.set_state(State.IDLE)
     robot.tick(lost + 10, None)
     assert robot._recentre_at is not None  # then a glance
+
+
+def test_sleep_parks_the_robot_frees_the_port_and_start_reconnects(monkeypatch):
+    monkeypatch.setattr(robot_mod, "SETTLE_S", 0)
+    robot, driver, cfg = make()
+    robot.flush()
+    driver.calls.clear()
+    robot.sleep()
+    assert driver.calls[-3:] == [("move", TOPLIP, 1.5, 10), ("move", BOTTOMLIP, 1.5, 10), ("eye", 0, 0, 0)]
+    assert NEUTRAL_CALLS[0] in driver.calls and driver.closed and not robot.connected
+    driver.calls.clear()
+    robot.lips(5, 5)
+    robot.flush()
+    assert driver.calls == []
+    robot.start()
+    assert robot.connected and driver.calls == [("eye", *cfg.colours.idle)]
+
+
+def test_ohbot_driver_close_releases_the_serial_port(monkeypatch):
+    port = NS(closed=False)
+    port.close = lambda: setattr(port, "closed", True)
+    fake = NS(connected=True, port="/dev/x", writing=False, ser=port, init=lambda: None, close=lambda: None)
+    monkeypatch.setitem(sys.modules, "ohbot", NS(ohbot=fake))
+    d = OhbotDriver()
+    d.connect()
+    d.close()
+    assert port.closed and fake.connected is False  # sleep must leave the port free for another program

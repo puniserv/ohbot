@@ -208,6 +208,13 @@ def test_thread_tracks_until_stopped_then_releases_the_camera():
     seen = r.vision.face
     r.vision.stop()
     assert seen is not None and r.cams[0].released and r.vision.face is None
+    assert r.vision.ok is None  # asleep, not failed
+    r.vision.start()  # wake after sleep
+    deadline = time.monotonic() + 2
+    while r.vision.face is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    r.vision.stop()
+    assert len(r.cams) == 2 and r.cams[1].released
 
 
 def test_yunet_model_is_bundled():

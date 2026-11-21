@@ -59,6 +59,8 @@ class App:
         self._face_since = self._face_last = self._greeted_at = -math.inf
         self._greet_due = False
         self._closed = False
+        self.asleep = False
+        self._sleep_lock = asyncio.Lock()
         self.mic_error: str | None = None  # a client that connects after the failure still has to see it
 
     def _fallback_dir(self):
@@ -125,6 +127,30 @@ class App:
         self.robot.pause_idle()
         self._gesture = asyncio.create_task(self.robot.gesture(name))
 
+    async def set_asleep(self, asleep: bool) -> None:
+        """Sleep frees the serial port, camera and microphone and keeps every loop off the robot; wake undoes it."""
+        async with self._sleep_lock:  # a double click must not interleave a sleep with a wake
+            if asleep == self.asleep:
+                return
+            if asleep:
+                self.asleep = True
+                self.mic.stop()
+                self.ptt_abort()
+                self.stop()
+                self._abort_action = "cancel"  # the turn must not end in LISTENING with the mic off
+                await asyncio.gather(*filter(None, [self._task, self._gesture]), return_exceptions=True)
+                if self.state == State.LISTENING:
+                    self._act("cancel")
+                await asyncio.to_thread(self.vision.stop)
+                await asyncio.to_thread(self.robot.sleep)
+            else:
+                await asyncio.to_thread(self.robot.start)
+                self.vision.start()
+                self.asleep = False  # only now, or the tick loop would retry the connect start() is doing
+                if self.config.conversation.mode != "ptt":
+                    self._start_mic()
+            self.bus.publish("sleep", asleep=self.asleep)
+
     async def close(self) -> None:
         if self._closed:  # called from uvicorn shutdown and again from the caller's finally
             return
@@ -145,8 +171,9 @@ class App:
             now, face = time.monotonic(), self.vision.face
             if face is not None and now - face.t > STALE_FACE_S:
                 face = None
-            self.robot.tick(now, face)
-            self._auto_greet(now, face)
+            if not self.asleep:
+                self.robot.tick(now, face)
+                self._auto_greet(now, face)
             await asyncio.sleep(TICK_S)
 
     def _auto_greet(self, now: float, face) -> None:
@@ -217,7 +244,8 @@ class App:
         self.config.conversation.mode = mode
         self.ptt_abort()
         if mode != "ptt":
-            self._start_mic()
+            if not self.asleep:
+                self._start_mic()
             return
         self.mic.stop()
         self._wake_until = 0.0

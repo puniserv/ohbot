@@ -9,6 +9,7 @@ from ohbotchat.engine import EngineError, Reply
 from ohbotchat.events import EventBus
 from ohbotchat.listen import Segmenter
 from ohbotchat.robot import BOTTOMLIP, EYETURN, HEADNOD, HEADTURN, TOPLIP, NullDriver, Robot
+from ohbotchat.state import State
 from ohbotchat.vision import Face
 
 SPEECH_PCM = b"\x00\x20" * 24000  # 1 s of loud-ish signal at 24 kHz
@@ -1207,3 +1208,43 @@ async def test_calibrate_without_a_face_changes_nothing():
     app.vision.face = None
     assert "twarz" in app.calibrate()
     assert app.config.camera.offset_x == 0.1
+
+
+async def test_sleep_stops_mic_camera_robot_and_loops_then_wake_restarts_them(monkeypatch):
+    from ohbotchat import robot as robot_mod
+
+    monkeypatch.setattr(robot_mod, "SETTLE_S", 0)
+    app, driver = make(mode="continuous")
+    await app.start()
+    q = app.bus.subscribe()
+    await app.set_asleep(True)
+    assert app.asleep and not app.mic.running and not app.vision.running
+    assert not app.robot.connected and driver.closed and app.state == State.IDLE
+    app.vision.face = Face(0.5, 0.0, time.monotonic())
+    driver.calls.clear()
+    await asyncio.sleep(0.25)  # tick loop: no reconnect retry, no tracking, no greeting
+    app.robot.flush()
+    assert driver.calls == [] and not app.robot.connected
+    app.set_mode("wake")
+    assert not app.mic.running  # a mode change must not wake the mic
+    await app.set_asleep(False)
+    assert app.robot.connected and app.vision.running and app.mic.running and app.state == State.LISTENING
+    events = []
+    while not q.empty():
+        events.append(q.get_nowait())
+    assert [e.data for e in events if e.type == "sleep"] == [{"asleep": True}, {"asleep": False}]
+    await app.close()
+
+
+async def test_sleep_cancels_a_running_turn_and_closes_the_mouth(monkeypatch):
+    from ohbotchat import robot as robot_mod
+
+    monkeypatch.setattr(robot_mod, "SETTLE_S", 0)
+    speaker = FakeSpeaker(block=True)
+    app, driver = make(speaker=speaker)
+    task = app.start_turn(LONG_ENOUGH)
+    await speaker.started.wait()
+    await app.set_asleep(True)
+    assert task.done() and app.state == State.IDLE
+    assert ("eye", 0, 0, 0) in driver.calls and driver.closed
+    await app.close()

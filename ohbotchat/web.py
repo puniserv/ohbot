@@ -22,9 +22,11 @@ ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost"})
 MODES = ("ptt", "wake", "continuous")
 MANUAL_GESTURES = tuple(g for g in GESTURES if g != "none")
 MOTORS = range(7)
+MANUAL = ("gesture", "motor", "close_mouth", "neutral", "calibrate", "say", "voice_sample")
 MAX_SAY = 300
 MAX_PERSONA = 8000
 BUSY = "Robot jest zajęty – spróbuj, gdy skończy"
+ASLEEP = "Robot śpi – kliknij „Obudź”"
 
 
 class _RunningRobot:
@@ -89,6 +91,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
 
     api = FastAPI(lifespan=lifespan)
     tasks: set[asyncio.Task] = set()
+    sleeps: set[asyncio.Task] = set()  # keeps a reference, else the event loop may drop the running task
     panels: set[WebSocket] = set()  # connections with the motion test panel open
 
     def set_panel(ws: WebSocket, open_: bool) -> None:
@@ -123,6 +126,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             "colours": asdict(cfg.colours),
             "mic_error": app.mic_error,
             "camera": app.vision.ok,
+            "asleep": app.asleep,
             **settings(),
         }
 
@@ -136,6 +140,9 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
 
     def command(msg: dict, ws: WebSocket) -> None:
         cmd = msg.get("cmd")
+        if app.asleep and cmd in ("ptt_start", "new", *MANUAL):
+            app.bus.publish("error", kind="other", message=ASLEEP)
+            return
         if cmd == "ptt_start":
             app.ptt_start()
         elif cmd == "ptt_stop":
@@ -149,8 +156,14 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             if not isinstance(msg.get("open"), bool):
                 raise ValueError("bad test_panel")
             set_panel(ws, msg["open"])
-        elif cmd in ("gesture", "motor", "close_mouth", "neutral", "calibrate", "say", "voice_sample"):
+        elif cmd in MANUAL:
             manual(cmd, msg)
+        elif cmd == "sleep":
+            if not isinstance(msg.get("asleep"), bool):
+                raise ValueError("bad sleep")
+            task = asyncio.create_task(app.set_asleep(msg["asleep"]))
+            sleeps.add(task)
+            task.add_done_callback(sleeps.discard)
         elif cmd == "mode" and msg.get("value") in MODES:
             app.set_mode(msg["value"])
             app.bus.publish("settings", **settings())

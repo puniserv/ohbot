@@ -105,6 +105,7 @@ class Vision:
         self.ok: bool | None = None  # None before the first frame and while disabled
 
     def start(self) -> None:
+        self._halt.clear()  # sleep stops and wake starts it again
         self._thread = threading.Thread(target=self._run, name="vision", daemon=True)
         self._thread.start()
 
@@ -120,6 +121,7 @@ class Vision:
             self.step(time.monotonic())
             self._halt.wait(1 / FPS)
         self._release()
+        self._set_ok(None)
 
     def step(self, now: float) -> None:
         """One frame: (re)open the camera when due, detect, publish."""

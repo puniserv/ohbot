@@ -26,6 +26,7 @@ EYE_SPEED = 8  # eyes lead and the head follows ([robot] head_speed), as people 
 EYE_MAX_STEP = 2.0
 MIN_STEP = 0.2  # smaller pursuit steps are detector noise and would flood the serial link
 GESTURE_FRAME_S = 0.05  # gesture steps are eased through points this far apart, so the servo never jumps a whole step
+SETTLE_S = 1.0  # time for the servos to reach the neutral pose before sleep detaches them
 GLANCE_S = 1.5  # the gliding head needs most of a second to get there
 _HEAD = (HEADTURN, HEADNOD)
 
@@ -130,7 +131,8 @@ class OhbotDriver:
 
     def close(self) -> None:
         if self._o is not None:
-            self._o.close()
+            self._o.close()  # only detaches the servos; the port has to be released too, so sleep frees it
+            self._forget_port()
 
 
 class Robot:
@@ -340,6 +342,25 @@ class Robot:
         if lost and now >= self._next_glance:
             self._next_glance = now + self._rng.uniform(5, 10)
             self.glance(now)
+
+    def sleep(self) -> None:
+        """Neutral pose, mouth shut, eyes off, then releases the serial port; start() reconnects."""
+        self.neutral()
+
+        def run() -> None:
+            if self._connected:
+                try:
+                    self._driver.eye_colour(0, 0, 0)
+                    time.sleep(SETTLE_S)
+                except Exception:
+                    pass
+            try:
+                self._driver.close()
+            except Exception:
+                pass
+            self._set_connected(False)
+
+        self._pool.submit(run).result()
 
     def close(self) -> None:
         self._closed = True
