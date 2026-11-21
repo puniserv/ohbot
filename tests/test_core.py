@@ -273,3 +273,12 @@ def test_save_settings_writes_a_toml_array_and_replaces_a_multiline_one(tmp_path
     text = path.read_text(encoding="utf-8")
     assert text == '[conversation]\n# fillers\nfiller_phrases = ["Mo\\"ment", "Już…"]  # keep\nfillers = true\n'
     assert tomllib.loads(text)["conversation"]["filler_phrases"] == ['Mo"ment', "Już…"]
+
+
+def test_save_settings_keeps_the_rest_of_the_file_after_a_broken_bracket_line(tmp_path):
+    from ohbotchat.config import save_settings
+
+    path = tmp_path / "config.toml"
+    path.write_text('[conversation]\nfiller_phrases = ["Hmm…"  # typo\nfillers = true\n\n[robot]\nlip_closed = 1.5\n', encoding="utf-8")
+    save_settings(path, {"conversation": {"filler_phrases": ["Ok"]}})
+    assert path.read_text(encoding="utf-8") == '[conversation]\nfiller_phrases = ["Ok"]\nfillers = true\n\n[robot]\nlip_closed = 1.5\n'

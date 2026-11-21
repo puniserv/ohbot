@@ -302,9 +302,12 @@ def _set_line(lines: list[str], section: str, key: str, line: str) -> None:
             if m := re.match(rf"\s*{re.escape(key)}\s*=(.*)$", text):
                 value, last = m.group(1), i
                 # a hand-written array over several lines; anything else broken stays a one-line replace
-                while value.lstrip().startswith("[") and not _parses(value) and last + 1 < len(lines):
-                    last += 1
-                    value += "\n" + lines[last]
+                joined, j = value, i
+                while joined.lstrip().startswith("[") and not _parses(joined) and j + 1 < len(lines):
+                    j += 1
+                    joined += "\n" + lines[j]
+                if _parses(joined):  # a broken `[` line would otherwise swallow the file to EOF
+                    value, last = joined, j
                 lines[i : last + 1] = [line + _comment(value.strip())]
                 return
             if text.strip():
