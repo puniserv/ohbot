@@ -1,4 +1,6 @@
+import json
 import os
+import re
 import sys
 import tomllib
 from dataclasses import dataclass, field, fields
@@ -34,6 +36,8 @@ class ConversationConfig:
     history_turns: int = 10
     mode: str = "ptt"
     max_record_s: float = 30  # a stuck button or dropped page must not record forever
+    greeting: str = "Cześć! Jestem Ohbot. O czym porozmawiamy?"
+    fillers: bool = True
 
 
 @dataclass
@@ -118,3 +122,130 @@ def load_config(root: Path = ROOT, env: dict[str, str] | None = None) -> Config:
     key = env.get("OPENAI_API_KEY") or _read_dotenv(root / ".env").get("OPENAI_API_KEY")
     cfg.api_key = key or None
     return cfg
+
+
+VOICES = ("alloy", "ash", "ballad", "cedar", "coral", "echo", "fable", "marin", "nova", "onyx", "sage", "shimmer", "verse")
+
+
+def _number(kind: type, lo: float, hi: float):
+    def check(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or (kind is int and v != int(v)) or not lo <= v <= hi:
+            raise ValueError(f"expected {kind.__name__} in {lo}..{hi}")
+        return kind(v)
+
+    return check
+
+
+def _flag(v):
+    if not isinstance(v, bool):
+        raise ValueError("expected true/false")
+    return v
+
+
+def _text(max_len: int):
+    def check(v):
+        if not isinstance(v, str) or not v.strip() or len(v) > max_len:
+            raise ValueError(f"expected 1..{max_len} characters")
+        return v.strip()
+
+    return check
+
+
+def _voice(v):
+    if v not in VOICES:
+        raise ValueError("unknown voice")
+    return v
+
+
+# the only keys the UI may change; each maps to a checker returning the normalised value
+EDITABLE = {
+    "robot": {
+        "lip_closed": _number(float, 0, 10),
+        "lip_open": _number(float, 0, 10),
+        "lip_delay_ms": _number(int, 0, 1000),
+        "lip_invert_top": _flag,
+        "lip_invert_bottom": _flag,
+        "gesture_step_s": _number(float, 0.05, 2),
+        "gesture_speed": _number(int, 1, 10),
+        "gesture_scale": _number(float, 0.5, 1.5),
+    },
+    "openai": {"tts_voice": _voice},
+    "barge_in": {"threshold": _number(float, 0, 1)},
+    "vad": {"silence_ms": _number(int, 200, 5000)},
+    "wake": {"window_s": _number(float, 1, 60)},
+    "conversation": {"greeting": _text(300), "fillers": _flag},
+}
+
+
+def validate_settings(raw) -> dict[str, dict]:
+    """Raises ValueError on anything but known editable keys with valid values."""
+    if not isinstance(raw, dict):
+        raise ValueError("expected an object")
+    out: dict[str, dict] = {}
+    for section, values in raw.items():
+        checks = EDITABLE.get(section)
+        if checks is None or not isinstance(values, dict):
+            raise ValueError(f"unknown section {section!r}")
+        for key, value in values.items():
+            if key not in checks:
+                raise ValueError(f"unknown key {section}.{key}")
+            try:
+                out.setdefault(section, {})[key] = checks[key](value)
+            except ValueError as e:
+                raise ValueError(f"{section}.{key}: {e}") from None
+    return out
+
+
+def editable_settings(cfg: Config) -> dict[str, dict]:
+    return {s: {k: getattr(getattr(cfg, s), k) for k in keys} for s, keys in EDITABLE.items()}
+
+
+def _toml_value(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, str):
+        return json.dumps(v, ensure_ascii=False)  # a JSON string is a valid TOML basic string
+    return repr(v)
+
+
+def _comment(rest: str) -> str:
+    """The trailing comment after a single-line value (a `#` inside a string is not one)."""
+    for i, c in enumerate(rest):
+        if c == "#":
+            try:
+                tomllib.loads("v = " + rest[:i])
+                return "  " + rest[i:]
+            except tomllib.TOMLDecodeError:
+                continue
+    return ""
+
+
+_SECTION = re.compile(r"^\s*\[([^\[\]]+)\]\s*(#.*)?$")
+
+
+def _set_line(lines: list[str], section: str, key: str, line: str) -> None:
+    current = header = end = None
+    for i, text in enumerate(lines):
+        if m := _SECTION.match(text):
+            current = m.group(1).strip()
+            if current == section:
+                header = end = i
+        elif current == section:
+            if m := re.match(rf"\s*{re.escape(key)}\s*=(.*)$", text):
+                lines[i] = line + _comment(m.group(1).strip())
+                return
+            if text.strip():
+                end = i
+    if header is None:
+        lines += ["", f"[{section}]", line]
+    else:
+        lines.insert(end + 1, line)
+
+
+def save_settings(path: Path, values: dict[str, dict]) -> None:
+    """Rewrites only the lines of the given keys so the comments in config.toml survive; adds missing ones."""
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    for section, keys in values.items():
+        for key, value in keys.items():
+            _set_line(lines, section, key, f"{key} = {_toml_value(value)}")
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

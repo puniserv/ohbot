@@ -23,6 +23,10 @@ persona = "dzieci"
 history_turns = 10
 mode = "ptt"
 max_record_s = 30
+# Spoken on "Nowa rozmowa" and once at startup when the robot is connected; cached per voice.
+greeting = "Cześć! Jestem Ohbot. O czym porozmawiamy?"
+# A short "Hmm…" when the reply is slow, so the child knows the robot heard them.
+fillers = true
 
 [wake]
 words = ["ohbot", "hej ohbot", "ochbot", "obot", "ołbot"]

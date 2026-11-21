@@ -1,6 +1,8 @@
 import asyncio
 import threading
 
+import pytest
+
 from ohbotchat.config import load_config
 from ohbotchat.events import EventBus
 from ohbotchat.state import State, transition
@@ -102,3 +104,77 @@ def test_app_root_is_the_exe_folder_in_a_frozen_build(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setattr(sys, "executable", str(tmp_path / "ohbotchat.exe"))
     assert app_root() == tmp_path.resolve()
+
+
+def test_validate_settings_accepts_known_keys_and_normalises():
+    from ohbotchat.config import validate_settings
+
+    out = validate_settings({"robot": {"lip_closed": 2, "lip_invert_top": True}, "openai": {"tts_voice": "ash"}})
+    assert out == {"robot": {"lip_closed": 2.0, "lip_invert_top": True}, "openai": {"tts_voice": "ash"}}
+    assert isinstance(out["robot"]["lip_closed"], float)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"robot": {"nope": 1}},
+        {"nope": {"x": 1}},
+        {"openai": {"chat_model": "gpt-x"}},  # exists, but not editable
+        {"robot": {"lip_closed": 11}},
+        {"robot": {"lip_closed": "2"}},
+        {"robot": {"lip_closed": True}},
+        {"robot": {"gesture_speed": 2.5}},
+        {"robot": {"gesture_scale": 1.6}},
+        {"robot": {"lip_invert_top": 1}},
+        {"openai": {"tts_voice": "darth"}},
+        {"conversation": {"greeting": ""}},
+        {"conversation": {"greeting": "x" * 301}},
+        {"robot": [1]},
+        [1],
+    ],
+)
+def test_validate_settings_rejects(bad):
+    from ohbotchat.config import validate_settings
+
+    with pytest.raises(ValueError):
+        validate_settings(bad)
+
+
+def test_save_settings_replaces_only_known_lines_and_keeps_comments(tmp_path):
+    from ohbotchat.config import save_settings
+
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '# top\n[openai]\n# voice\ntts_voice = "cedar"  # male # really\nchat_model = "x"\n\n'
+        "[robot]\nlip_closed = 1.5\n# trailing\n\n[vad]\nsilence_ms = 800\n",
+        encoding="utf-8",
+    )
+    save_settings(
+        path,
+        {
+            "openai": {"tts_voice": 'a"b#c'},
+            "robot": {"lip_closed": 2.0, "lip_invert_top": True},
+            "vad": {"silence_ms": 900},
+            "wake": {"window_s": 5.0},
+        },
+    )
+    text = path.read_text(encoding="utf-8")
+    assert text == (
+        '# top\n[openai]\n# voice\ntts_voice = "a\\"b#c"  # male # really\nchat_model = "x"\n\n'
+        "[robot]\nlip_closed = 2.0\n# trailing\nlip_invert_top = true\n\n[vad]\nsilence_ms = 900\n"
+        "\n[wake]\nwindow_s = 5.0\n"
+    )
+    import tomllib
+
+    assert tomllib.loads(text)["openai"]["tts_voice"] == 'a"b#c'
+    cfg = load_config(tmp_path, env={})
+    assert cfg.robot.lip_closed == 2.0 and cfg.wake.window_s == 5.0 and cfg.robot.lip_invert_top is True
+
+
+def test_editable_settings_reads_current_values():
+    from ohbotchat.config import EDITABLE, editable_settings
+
+    cfg = load_config(env={})
+    values = editable_settings(cfg)
+    assert set(values) == set(EDITABLE) and values["conversation"]["greeting"] == cfg.conversation.greeting
+    assert values["conversation"]["fillers"] is True
