@@ -23,6 +23,7 @@ from ohbotchat.robot import (
     Robot,
 )
 from ohbotchat.state import State
+from ohbotchat.vision import Face
 
 
 def make(driver=None, **robot_cfg):
@@ -302,3 +303,106 @@ def test_close_mouth_and_neutral():
     robot.neutral()
     robot.flush()
     assert driver.calls == NEUTRAL_CALLS + [("move", TOPLIP, 1.5, 10), ("move", BOTTOMLIP, 8.5, 10)]
+
+
+def face(x=0.0, y=0.0):
+    return Face(x, y, 0.2, 0.0)
+
+
+def moves(driver):
+    return [c for c in driver.calls if c[0] == "move" and c[1] != LIDBLINK]
+
+
+def test_eyes_and_head_turn_to_the_face_eyes_faster():
+    robot, driver, _ = make()
+    robot.set_state(State.SPEAKING)  # tracking runs in every state; SPEAKING keeps blinks out of the way
+    robot.tick(100, face(0.5, -0.25))
+    robot.flush()
+    assert moves(driver) == [
+        ("move", EYETURN, 7.0, 8),
+        ("move", EYETILT, 4.0, 8),
+        ("move", HEADTURN, 6.5, 3),
+        ("move", HEADNOD, 4.25, 3),
+    ]
+
+
+def test_small_changes_are_not_sent_and_the_head_waits_for_the_deadband():
+    robot, driver, _ = make()
+    robot.set_state(State.SPEAKING)
+    robot.tick(100, face(0.5))
+    robot.flush()
+    driver.calls.clear()
+    robot.tick(100.1, face(0.53))  # eyes +0.12, head +0.09: both under 0.2
+    robot.tick(100.2, face(0.625))  # eyes +0.5 move; head +0.375 stays inside the 0.5 deadband
+    robot.flush()
+    assert moves(driver) == [("move", EYETURN, 7.5, 8)]
+    robot.tick(100.3, face(0.75))
+    robot.flush()
+    assert moves(driver)[-2:] == [("move", EYETURN, 8.0, 8), ("move", HEADTURN, 7.25, 3)]
+
+
+async def test_a_running_gesture_owns_the_head_then_tracking_resends():
+    robot, driver, _ = make(gesture_step_s=60)
+    robot.set_state(State.SPEAKING)
+    robot.tick(100, face(0.5))
+    task = asyncio.create_task(robot.gesture("yes"))
+    await asyncio.sleep(0)
+    robot.flush()
+    driver.calls.clear()
+    robot.tick(100.1, face(0.75))
+    robot.flush()
+    assert moves(driver) == []
+    task.cancel()
+    await asyncio.gather(task, return_exceptions=True)
+    robot.tick(100.2, face(0.5))
+    robot.flush()
+    # unchanged targets are sent again, because the gesture's neutral pose moved the motors
+    assert moves(driver)[-4:] == [
+        ("move", EYETURN, 7.0, 8),
+        ("move", EYETILT, 5.0, 8),
+        ("move", HEADTURN, 6.5, 3),
+        ("move", HEADNOD, 5.0, 3),
+    ]
+
+
+def test_test_panel_and_manual_moves_pause_tracking():
+    robot, driver, _ = make()
+    robot.set_state(State.SPEAKING)
+    robot.hold_idle = True
+    robot.tick(100, face(0.5))
+    robot.flush()
+    assert moves(driver) == []
+    robot.hold_idle = False
+    robot.move(HEADTURN, 2)
+    robot.flush()
+    driver.calls.clear()
+    now = time.monotonic()
+    robot.tick(now, face(0.5))
+    robot.flush()
+    assert moves(driver) == []
+    robot.tick(now + robot_mod.MANUAL_PAUSE_S + 1, face(0.5))
+    robot.flush()
+    assert ("move", HEADTURN, 6.5, 3) in driver.calls
+
+
+def test_idle_tracking_keeps_blinking_but_does_not_glance_while_a_face_was_seen_recently():
+    robot, driver, cfg = make()
+    robot.tick(100, face(0.5))
+    robot.tick(100 + cfg.camera.lost_after_s - 0.5, None)  # a missed detection, not yet lost
+    robot.flush()
+    assert ("move", EYETURN, 7.0, 8) in driver.calls and LIDBLINK in motors(driver)
+    assert not [c for c in moves(driver) if c[1] == EYETURN and c[3] == 5]  # a glance moves the eyes at speed 5
+
+
+def test_lost_face_recentres_once_then_glances_resume():
+    robot, driver, cfg = make()
+    robot.tick(100, face(0.5))
+    robot.flush()
+    driver.calls.clear()
+    lost = 100 + cfg.camera.lost_after_s
+    robot.tick(lost, None)
+    robot.tick(lost + 0.1, None)
+    robot.flush()
+    m = moves(driver)
+    assert m[:4] == [("move", HEADTURN, 5, 3), ("move", HEADNOD, 5, 3), ("move", EYETURN, 5, 8), ("move", EYETILT, 5, 8)]
+    assert len(m) == 6 and m[5][1] == EYETURN and m[5][3] == 5  # then one glance

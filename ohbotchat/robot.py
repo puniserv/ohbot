@@ -1,4 +1,5 @@
 import asyncio
+import math
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -7,6 +8,7 @@ from typing import Protocol
 from .config import Config
 from .events import EventBus
 from .state import State
+from .vision import Face, motor_target
 
 HEADNOD, HEADTURN, EYETURN, LIDBLINK, TOPLIP, BOTTOMLIP, EYETILT = range(7)
 
@@ -20,6 +22,8 @@ _COLOUR_KEY = {
 }
 RETRY_S = 5.0
 MANUAL_PAUSE_S = 5.0  # a blink or glance right after a manual move would undo what the operator is looking at
+EYE_SPEED, HEAD_SPEED = 8, 3  # eyes lead and the head follows, as people do
+MIN_STEP = 0.2  # smaller tracking moves are detector noise and would flood the serial link
 
 GESTURE_FLASH = (10, 10, 0)
 _NEUTRAL = ((HEADNOD, 5), (HEADTURN, 5), (EYETURN, 5), (EYETILT, 5), (LIDBLINK, 10))
@@ -128,6 +132,10 @@ class Robot:
         self._idle_after = 0.0
         self._connecting = False
         self._closed = False
+        self._seen_at = -math.inf
+        self._pos: dict[int, float] = {}  # last tracking position sent per motor; any other move clears it
+        self._tracked = False
+        self._gesturing = 0
 
     @property
     def connected(self) -> bool:
@@ -188,6 +196,7 @@ class Robot:
     def pause_idle(self) -> None:
         self._idle_after = time.monotonic() + MANUAL_PAUSE_S
         self._recentre_at = None
+        self._pos.clear()
 
     def move(self, motor: int, pos: float) -> None:
         """Raw motor position for the test panel: no lip inversion."""
@@ -227,36 +236,70 @@ class Robot:
         steps = _GESTURES.get(name)
         if not steps:
             return
+        self._gesturing += 1  # a count, because a manual gesture can start before the cancelled one's finally ran
         try:
             for step in steps:
                 self._submit(self._gesture_step, step)
                 await asyncio.sleep(self._cfg.robot.gesture_step_s)
         finally:
+            self._gesturing -= 1
+            self._pos.clear()
             self._submit(self._gesture_step, _NEUTRAL)
             self._submit(self._apply_colour)
 
     def glance(self, now: float) -> None:
+        self._pos.clear()
         self._submit(self._driver.move, HEADTURN, self._rng.uniform(3, 7), 3)
         self._submit(self._driver.move, EYETURN, self._rng.uniform(3, 7), 5)
         self._recentre_at = now + 1.0
 
-    def tick(self, now: float) -> None:
+    def _send(self, motor: int, pos: float, speed: int, step: float) -> None:
+        last = self._pos.get(motor)
+        if last is not None and abs(pos - last) < step:
+            return
+        self._pos[motor] = pos
+        self._submit(self._driver.move, motor, pos, speed)
+
+    def _track(self, face: Face) -> None:
+        c = self._cfg.camera
+        head_step = max(c.deadband, MIN_STEP)
+        self._recentre_at = None  # a glance's recentre would yank the head off the face
+        self._send(EYETURN, motor_target(face.x, c.eye_gain), EYE_SPEED, MIN_STEP)
+        self._send(EYETILT, motor_target(face.y, c.eye_gain), EYE_SPEED, MIN_STEP)
+        self._send(HEADTURN, motor_target(face.x, c.head_gain), HEAD_SPEED, head_step)
+        self._send(HEADNOD, motor_target(face.y, c.head_gain), HEAD_SPEED, head_step)
+        self._tracked = True
+
+    def tick(self, now: float, face: Face | None = None) -> None:
         if not self._connected:
             if now >= self._next_retry and not self._connecting:
                 self._next_retry = now + RETRY_S
                 self._connecting = True
                 self._pool.submit(self._connect)
             return
+        if face is not None:
+            self._seen_at = now
         if self._recentre_at is not None and now >= self._recentre_at:
             self._recentre_at = None
+            self._pos.clear()
             self._submit(self._driver.move, HEADTURN, 5, 3)
             self._submit(self._driver.move, EYETURN, 5, 5)
-        if self._state != State.IDLE or self.hold_idle or now < self._idle_after:
+        if self.hold_idle or now < self._idle_after or self._gesturing:
+            return
+        lost = now - self._seen_at >= self._cfg.camera.lost_after_s
+        if face is not None:
+            self._track(face)
+        elif lost and self._tracked:
+            self._tracked = False
+            self._pos.clear()
+            for motor, speed in ((HEADTURN, HEAD_SPEED), (HEADNOD, HEAD_SPEED), (EYETURN, EYE_SPEED), (EYETILT, EYE_SPEED)):
+                self._submit(self._driver.move, motor, 5, speed)
+        if self._state != State.IDLE:
             return
         if now >= self._next_blink:
             self._next_blink = now + self._rng.uniform(3, 6)
             self.blink()
-        if now >= self._next_glance:
+        if lost and now >= self._next_glance:
             self._next_glance = now + self._rng.uniform(5, 10)
             self.glance(now)
 
