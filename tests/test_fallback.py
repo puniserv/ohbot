@@ -1,5 +1,5 @@
 from ohbotchat.engine import EngineError
-from ohbotchat.fallback import PHRASES, Fallback
+from ohbotchat.fallback import FILLERS, PHRASES, Fallback
 
 
 class FakeTts:
@@ -34,3 +34,20 @@ async def test_ensure_survives_offline(tmp_path):
     fb = Fallback(tmp_path)
     await fb.ensure(FakeTts(fail_on=PHRASES["error"]))
     assert fb.get("error") is None and fb.get("moderated") is not None
+
+
+def test_text_cache_is_per_directory_and_text(tmp_path):
+    fb = Fallback(tmp_path / "v1")
+    assert fb.cached("Cześć") is None
+    fb.store("Cześć", b"pcm")
+    assert fb.cached("Cześć") == b"pcm" and fb.cached("Hej") is None
+    fb.dir = tmp_path / "v2"  # another voice
+    assert fb.cached("Cześć") is None
+
+
+async def test_ensure_also_caches_fillers(tmp_path):
+    fb, tts = Fallback(tmp_path), FakeTts()
+    await fb.ensure(tts)
+    assert all(fb.cached(t) == t.encode() for t in FILLERS)
+    fb.dir.joinpath(next(fb.dir.glob("say-*.pcm")).name).unlink()
+    assert not fb.complete()

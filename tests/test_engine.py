@@ -280,3 +280,24 @@ async def test_server_error_twice_names_the_stage():
     with pytest.raises(EngineError) as e:
         await eng.respond("x", [])
     assert e.value.kind == "other" and "chat" in str(e.value)
+
+
+async def test_say_moderates_then_speaks_without_chat():
+    client = FakeClient()
+    eng, _ = make(client)
+    assert await eng.say("Dzień dobry") == b"\x01\x00" * 10
+    assert [n for n, _ in client.calls] == ["moderation", "tts"]
+    assert dict(client.calls)["moderation"]["input"] == "Dzień dobry"
+    assert dict(client.calls)["tts"]["voice"] == eng._cfg.openai.tts_voice
+
+
+async def test_say_with_another_voice_and_flagged_text():
+    client = FakeClient()
+    eng, _ = make(client)
+    await eng.say("x", voice="ash")
+    assert dict(client.calls)["tts"]["voice"] == "ash"
+    client = FakeClient(flagged=(True,))
+    eng, _ = make(client)
+    with pytest.raises(EngineError) as e:
+        await eng.say("brzydkie")
+    assert e.value.kind == "moderated" and [n for n, _ in client.calls] == ["moderation"]
