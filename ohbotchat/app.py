@@ -187,6 +187,8 @@ class App:
         return self._task
 
     def new_conversation(self) -> None:
+        if self._busy():  # the old exchange would land in the fresh history once its reply arrives
+            self.stop()
         self.history.clear()
 
     def stop(self, relisten: bool = False) -> None:

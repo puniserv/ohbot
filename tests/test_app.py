@@ -313,6 +313,23 @@ async def test_history_trimmed_and_cleared():
     assert app.history == []
 
 
+async def test_new_conversation_drops_the_turn_in_flight():
+    gate = asyncio.Event()
+
+    class Slow(FakeEngine):
+        async def respond(self, heard, history, on_safe=None):
+            await gate.wait()
+            return await super().respond(heard, history, on_safe)
+
+    app, _ = make(Slow())
+    task = app.start_turn(LONG_ENOUGH)
+    await asyncio.sleep(0.01)
+    app.new_conversation()
+    gate.set()
+    await asyncio.gather(task, return_exceptions=True)
+    assert app.history == [] and app.state == "idle"
+
+
 async def test_stop_while_fallback_plays_does_not_stick_in_error():
     speaker = FakeSpeaker(block=True)
     app, _ = make(FakeEngine(fail=EngineError("network")), speaker)
