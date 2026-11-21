@@ -100,9 +100,11 @@ Wyniki ✔/✘ z podpowiedzią po polsku:
 
 ## Prywatność (warsztaty z dziećmi)
 
-Audio i tekst trafiają do OpenAI. Według zasad OpenAI dane z API nie są używane do trenowania modeli
-i są przechowywane do 30 dni. Prowadzący informuje szkołę lub rodziców. Tryby push-to-talk i słowo kluczowe
-ograniczają nagrywanie przypadkowych rozmów. Aplikacja nie zapisuje nagrań na dysk.
+Audio i tekst trafiają do OpenAI (STT, moderacja, chat, TTS). Według zasad OpenAI dane z API nie są używane do
+trenowania modeli, a logi do wykrywania nadużyć są przechowywane do 30 dni. Prowadzący informuje szkołę lub rodziców
+i zbiera zgodę rodziców, gdzie wymaga jej prawo. Tylko push-to-talk ogranicza to, co trafia do OpenAI: w trybie słowa
+kluczowego i ciągłej rozmowy każda wypowiedź w sali idzie do rozpoznania mowy, bo słowo „Ohbot” jest sprawdzane
+dopiero w transkrypcji. Aplikacja nie zapisuje nagrań na dysk. Szczegóły dla prowadzącego: docs/windows.md, „Privacy”.
 
 ## Testy
 

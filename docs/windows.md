@@ -56,6 +56,14 @@ uv run ohbotchat --window
 
 Here `.env` goes in the repo root.
 
+## Privacy (for the operator)
+
+- **What leaves the computer:** what children say and the robot's replies go to OpenAI: their speech for transcription, the transcript and the reply for moderation, the conversation for the chat model, and the reply text for speech synthesis. Camera frames never leave the app; only the face position is used.
+- **Retention:** per OpenAI's "Your data" page for the API, data sent to the API is not used to train models unless the account opts in. Abuse monitoring logs are kept for up to 30 days, longer only where the law requires it. Check the current wording at developers.openai.com before a workshop.
+- **Children:** tell the school or the parents before a session and get parental consent where the law requires it (in the EU, GDPR). OpenAI's terms set a minimum age and need a parent's or guardian's permission for minors, and its usage policies cover services used by minors. Check that your use follows them.
+- **Modes:** only push-to-talk ("Przycisk") limits what is uploaded to what a child says while holding the button. In "Słowo „Ohbot”" and "Ciągła rozmowa" every utterance in the room is sent to OpenAI, because the wake word is only matched after transcription. The app shows this under the mode selector.
+- The app saves no recordings to disk.
+
 ## Troubleshooting
 
 **Robot not found** (`doctor` shows "Ohbot: robot nie odpowiada")
