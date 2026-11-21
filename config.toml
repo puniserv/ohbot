@@ -70,7 +70,7 @@ enabled = true
 # 0 = built-in camera; try 1 or 2 for a USB camera.
 index = 0
 # Flip if the robot looks away from the child instead of at them.
-mirror = false
+mirror = true
 # Camera beside the robot: shift (-1..1) until it looks at a child straight in front of it.
 offset_x = 0.0
 offset_y = 0.0
