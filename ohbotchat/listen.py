@@ -21,7 +21,7 @@ def _vad_is_speech(aggressiveness: int) -> Callable[[bytes], bool]:
 
 
 class Segmenter:
-    """Cuts a stream of 30 ms frames into utterances: speech, then `silence_ms` of quiet."""
+    """Cuts a stream of 30 ms frames into utterances: speech, then `silence_ms` of quiet, or `max_ms` in total."""
 
     def __init__(
         self,
@@ -29,8 +29,10 @@ class Segmenter:
         silence_ms: int = 800,
         min_speech_ms: int = 300,
         is_speech: Callable[[bytes], bool] | None = None,
+        max_ms: float | None = None,
     ) -> None:
         self._is_speech = is_speech or _vad_is_speech(aggressiveness)
+        self._max_frames = max(1, int(max_ms // FRAME_MS)) if max_ms else None
         self._silence_frames = max(1, silence_ms // FRAME_MS)
         self._min_speech_frames = max(1, min_speech_ms // FRAME_MS)
         self._lead: deque[bytes] = deque(maxlen=LEAD_IN_FRAMES)
@@ -60,9 +62,10 @@ class Segmenter:
         if speech:
             self._speech += 1
             self._quiet = 0
-            return None
-        self._quiet += 1
-        if self._quiet < self._silence_frames:
+        else:
+            self._quiet += 1
+        full = self._max_frames is not None and len(self._frames) >= self._max_frames
+        if not full and (speech or self._quiet < self._silence_frames):
             return None
         utterance = b"".join(self._frames) if self._speech >= self._min_speech_frames else None
         self._reset()

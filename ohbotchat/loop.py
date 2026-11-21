@@ -32,7 +32,11 @@ class MicLoop:
         self._on_utterance, self._on_barge, self._on_lost = on_utterance, on_barge, on_lost
         self._bus = bus
         self._meter = LevelMeter(bus)
-        self.segmenter = Segmenter(config.vad.aggressiveness, config.vad.silence_ms, config.vad.min_speech_ms)
+        v = config.vad
+        # a noisy room never goes quiet; the cap bounds the buffer and the STT upload
+        self.segmenter = Segmenter(
+            v.aggressiveness, v.silence_ms, v.min_speech_ms, max_ms=config.conversation.max_record_s * 1000
+        )
         self._stream = None
         self._watchdog: asyncio.TimerHandle | None = None
         self._last_frame = 0.0

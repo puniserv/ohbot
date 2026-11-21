@@ -189,3 +189,10 @@ async def test_mic_lost_is_reported_even_when_the_dead_stream_fails_to_stop():
         rig.mic._finished(stream)  # what the finished callback runs on the loop
     assert rig.lost == 1 and not rig.mic.running and stream.log == ["start", "close"]
     assert levels[-1].data == {"level": 0.0}
+
+
+def test_segmenter_max_length_comes_from_max_record_s():
+    rig = Rig()
+    rig.cfg.conversation.max_record_s = 0.3
+    mic = MicLoop(rig.cfg, rig.bus, lambda: rig.state, rig.utterances.append, None, None, None)
+    assert mic.segmenter._max_frames == 10

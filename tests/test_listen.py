@@ -38,6 +38,11 @@ def test_segmenter_keeps_a_little_lead_in():
     assert out.startswith(QUIET) and out.count(QUIET) > 3
 
 
+def test_segmenter_cuts_endless_speech_at_max_length():
+    out = feed(seg(max_ms=150), "s" * 11)
+    assert [len(u) // FRAME_BYTES for u in out] == [5, 5]
+
+
 def test_segmenter_rejects_wrong_frame_size():
     with pytest.raises(ValueError):
         seg().feed(b"\x00")
