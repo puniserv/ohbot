@@ -129,6 +129,9 @@ def test_validate_settings_accepts_known_keys_and_normalises():
         {"openai": {"tts_voice": "darth"}},
         {"conversation": {"greeting": ""}},
         {"conversation": {"greeting": "x" * 301}},
+        {"conversation": {"greeting": "Cześć\x7f"}},  # DEL written raw makes tomllib reject the file
+        {"conversation": {"greeting": "Cześć\nhej"}},
+        {"conversation": {"greeting": "a\x00b"}},
         {"robot": [1]},
         [1],
     ],
@@ -178,3 +181,32 @@ def test_editable_settings_reads_current_values():
     values = editable_settings(cfg)
     assert set(values) == set(EDITABLE) and values["conversation"]["greeting"] == cfg.conversation.greeting
     assert values["conversation"]["fillers"] is True
+
+
+def test_save_settings_replaces_the_file_atomically(tmp_path, monkeypatch):
+    import os
+
+    from ohbotchat import config as config_mod
+    from ohbotchat.config import save_settings
+
+    path = tmp_path / "config.toml"
+    path.write_text("[robot]\nlip_closed = 1.5\n", encoding="utf-8")
+    path.chmod(0o640)
+    replaced = []
+    real = os.replace
+    monkeypatch.setattr(config_mod.os, "replace", lambda a, b: (replaced.append((a, b)), real(a, b)))
+    save_settings(path, {"robot": {"lip_closed": 2.0}})
+    assert replaced and replaced[0][1] == path and "lip_closed = 2.0" in path.read_text(encoding="utf-8")
+    assert [p.name for p in tmp_path.iterdir()] == ["config.toml"]  # no temp file left behind
+    assert path.stat().st_mode & 0o777 == 0o640
+
+
+def test_write_atomic_leaves_the_old_file_when_writing_fails(tmp_path, monkeypatch):
+    from ohbotchat import config as config_mod
+
+    path = tmp_path / "x.md"
+    path.write_text("old", encoding="utf-8")
+    monkeypatch.setattr(config_mod.os, "replace", lambda a, b: (_ for _ in ()).throw(OSError("disk full")))
+    with pytest.raises(OSError):
+        config_mod.write_atomic(path, "new")
+    assert path.read_text(encoding="utf-8") == "old" and [p.name for p in tmp_path.iterdir()] == ["x.md"]

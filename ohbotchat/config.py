@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sys
+import tempfile
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -142,10 +143,15 @@ def _flag(v):
     return v
 
 
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+
+
 def _text(max_len: int):
     def check(v):
         if not isinstance(v, str) or not v.strip() or len(v) > max_len:
             raise ValueError(f"expected 1..{max_len} characters")
+        if _CONTROL.search(v):  # tomllib rejects a raw DEL or control character on the next load
+            raise ValueError("control characters are not allowed")
         return v.strip()
 
     return check
@@ -248,4 +254,17 @@ def save_settings(path: Path, values: dict[str, dict]) -> None:
     for section, keys in values.items():
         for key, value in keys.items():
             _set_line(lines, section, key, f"{key} = {_toml_value(value)}")
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    write_atomic(path, "\n".join(lines) + "\n")
+
+
+def write_atomic(path: Path, text: str) -> None:
+    """A crash or full disk mid-write must leave the old file, not half of the new one."""
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, path.stat().st_mode if path.exists() else 0o644)  # mkstemp makes it owner-only
+        os.replace(tmp, path)
+    except BaseException:
+        os.unlink(tmp)
+        raise

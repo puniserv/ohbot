@@ -10,7 +10,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from .config import VOICES, editable_settings, save_settings, validate_settings
+from .config import VOICES, editable_settings, save_settings, validate_settings, write_atomic
 from .doctor import run_doctor
 from .engine import GESTURES
 
@@ -240,7 +240,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
         return {"values": editable_settings(cfg)}
 
     @api.post("/api/settings/save", dependencies=[Depends(guard)])
-    def save() -> dict:
+    async def save() -> dict:  # async runs it on the event loop, so two saves cannot interleave
         save_settings(cfg.root / "config.toml", editable_settings(cfg))
         return {"ok": True}
 
@@ -260,7 +260,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
         text = body.get("text") if isinstance(body, dict) else None
         if not isinstance(text, str) or not text.strip() or len(text) > MAX_PERSONA:
             raise HTTPException(400, f"expected 1..{MAX_PERSONA} characters")
-        path.write_text(text, encoding="utf-8")
+        write_atomic(path, text)
         return {"ok": True}
 
     api.mount("/", StaticFiles(directory=web_dir, html=True), name="static")
