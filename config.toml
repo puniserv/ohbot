@@ -10,7 +10,7 @@ chat_model = "gpt-5.4-mini"
 # Only non-Realtime TTS left; Polish follows Whisper language list. Shutdown announced 2027-01-06.
 tts_model = "gpt-4o-mini-tts"
 # Docs recommend marin or cedar for best quality.
-tts_voice = "marin"
+tts_voice = "cedar"  # male; female: marin. Others: ash, onyx
 moderation_model = "omni-moderation-latest"
 # The JSON wrapper ({"text": ..., "gesture": ...}) costs about 20 tokens on top of the reply.
 max_tokens = 200
