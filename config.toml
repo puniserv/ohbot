@@ -12,7 +12,8 @@ tts_model = "gpt-4o-mini-tts"
 # Docs recommend marin or cedar for best quality.
 tts_voice = "marin"
 moderation_model = "omni-moderation-latest"
-max_tokens = 150
+# The JSON wrapper ({"text": ..., "gesture": ...}) costs about 20 tokens on top of the reply.
+max_tokens = 200
 timeout_s = 10
 # gpt-5.x are reasoning models: reasoning tokens would eat max_tokens and leave an empty reply.
 reasoning_effort = "none"

@@ -25,7 +25,7 @@ def test_dotenv_key(tmp_path):
 
 def test_repo_config_toml_loads():
     cfg = load_config(env={})
-    assert cfg.openai.max_tokens == 150
+    assert cfg.openai.max_tokens == 200
     assert cfg.colours.listening == [0, 10, 0]
     assert "ohbot" in cfg.wake.words
 

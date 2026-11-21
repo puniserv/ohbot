@@ -15,8 +15,9 @@ def _resp(status):
 
 
 class FakeClient:
-    def __init__(self, flagged=(False, False), text="Cześć!", transcript="Cześć robot", fail=None):
+    def __init__(self, flagged=(False, False), text="Cześć!", transcript="Cześć robot", fail=None, finish="stop"):
         self.calls, self.flagged, self.text, self.transcript, self.fail = [], list(flagged), text, transcript, fail
+        self.finish = finish
         self.audio = NS(
             transcriptions=NS(create=self._stt), speech=NS(create=self._tts)
         )
@@ -38,7 +39,7 @@ class FakeClient:
 
     async def _chat(self, **kw):
         self._go("chat", kw)
-        return NS(choices=[NS(message=NS(content=self.text))])
+        return NS(choices=[NS(message=NS(content=self.text), finish_reason=self.finish)])
 
     async def _tts(self, **kw):
         self._go("tts", kw)
@@ -181,10 +182,36 @@ async def test_chat_asks_for_json_schema_and_parses_gesture():
     assert dict(client.calls)["tts"]["input"] == "Tak, to prawda!"
 
 
-@pytest.mark.parametrize("content", ["Cześć!", '{"gesture": "yes"}', '["Cześć!"]', '{"text": "Cześć!"'])
-async def test_unparsable_chat_reply_falls_back_to_raw_text(content):
-    reply = await make(FakeClient(text=content))[0].respond("x", [])
-    assert (reply.text, reply.gesture) == (content, "none")
+async def test_plain_text_chat_reply_is_used_as_is():
+    reply = await make(FakeClient(text="Cześć!"))[0].respond("x", [])
+    assert (reply.text, reply.gesture) == ("Cześć!", "none")
+
+
+@pytest.mark.parametrize(
+    "content,text",
+    [
+        ('{"text": "Cześć! Opowiem ci o', "Cześć! Opowiem ci o"),
+        ('{"text": "Powiedział \\"hej\\" i po', 'Powiedział "hej" i po'),
+        ('{"text": "Zażółć\\u0144', "Zażółć\u0144"),
+        ('{"text": "Zażółć\\u01', "Zażółć"),
+        ('{"text": "Koniec\\', "Koniec"),
+        ('{ "text" : "Cała", "gest', "Cała"),
+    ],
+)
+async def test_truncated_json_reply_recovers_the_text(content, text):
+    client = FakeClient(text=content, finish="length")
+    reply = await make(client)[0].respond("x", [])
+    assert (reply.text, reply.gesture) == (text, "none")
+    assert "{" not in reply.text and "{" not in dict(client.calls)["tts"]["input"]
+
+
+@pytest.mark.parametrize("content", ['{"gesture": "yes"}', '["Cześć!"]', '{"tex', '{"text": 5}'])
+async def test_json_reply_without_text_is_an_error(content):
+    client = FakeClient(text=content)
+    with pytest.raises(EngineError) as e:
+        await make(client)[0].respond("x", [])
+    assert e.value.kind == "other"
+    assert "tts" not in dict(client.calls)
 
 
 async def test_unknown_gesture_becomes_none():

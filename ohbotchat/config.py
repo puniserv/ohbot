@@ -13,7 +13,7 @@ class OpenAIConfig:
     tts_model: str = "gpt-4o-mini-tts"
     tts_voice: str = "marin"
     moderation_model: str = "omni-moderation-latest"
-    max_tokens: int = 150
+    max_tokens: int = 200
     timeout_s: float = 10
     reasoning_effort: str = "none"  # "" omits the parameter (non-reasoning chat models reject it)
 

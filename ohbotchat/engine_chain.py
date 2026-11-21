@@ -1,5 +1,6 @@
 import io
 import json
+import re
 import wave
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager
@@ -36,14 +37,35 @@ _REPLY_FORMAT = {
 }
 
 
+_TEXT_START = re.compile(r'"text"\s*:\s*"')
+
+
+def _partial_text(raw: str) -> str | None:
+    """The `text` value of JSON cut off by max tokens, dropping an escape that was cut in half."""
+    m = _TEXT_START.search(raw)
+    if not m:
+        return None
+    body = re.match(r'(?:[^"\\]|\\.)*', raw[m.end() :]).group()
+    for cut in range(min(6, len(body)) + 1):  # \uXXXX is the longest escape
+        try:
+            return json.loads(f'"{body[: len(body) - cut]}"')
+        except ValueError:
+            pass
+    return None
+
+
 def _parse_reply(raw: str) -> tuple[str, str]:
+    if not raw.startswith(("{", "[")):
+        return raw, "none"
     try:
         data = json.loads(raw)
-        text = data["text"].strip()
-    except (ValueError, KeyError, TypeError, AttributeError):
-        return raw, "none"
+    except ValueError:
+        text = _partial_text(raw)
+        data = {"text": text} if text is not None else None
+    if not isinstance(data, dict) or not isinstance(data.get("text"), str):
+        raise EngineError("other", "chat reply without text")  # speaking raw JSON aloud is worse than the error phrase
     gesture = data.get("gesture")
-    return text, gesture if gesture in GESTURES else "none"
+    return data["text"].strip(), gesture if gesture in GESTURES else "none"
 
 
 def _is_quota(e: openai.RateLimitError) -> bool:
