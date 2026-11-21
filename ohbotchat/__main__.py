@@ -108,8 +108,10 @@ async def _web(port: int, on_ready) -> int:
     config = load_config()
     app = App(config, engine=None if config.api_key else NoKeyEngine())
     server = uvicorn.Server(server_config(create_app(app), port))
+    failed = False
 
     async def ready() -> None:
+        nonlocal failed
         # uvicorn binds after its lifespan startup, so the robot greets and the console speaks only once the port is ours
         while not server.started:
             await asyncio.sleep(0.1)
@@ -117,6 +119,7 @@ async def _web(port: int, on_ready) -> int:
             await app.start()
         except Exception:
             log.exception("App start failed")
+            failed = True
             server.should_exit = True
             return
         if app.closed:  # Ctrl+C while the robot was connecting
@@ -132,7 +135,7 @@ async def _web(port: int, on_ready) -> int:
     finally:
         opener.cancel()
         await app.close()
-    return 0
+    return 1 if failed else 0
 
 
 def _window(port: int) -> int:

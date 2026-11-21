@@ -278,3 +278,17 @@ async def test_web_closed_during_start_neither_announces_nor_opens_the_page(monk
     monkeypatch.setattr(_WebApp, "start", lambda self: start_then_ctrl_c())
     await asyncio.wait_for(_web(_free_port(), lambda url, server: pytest.fail("opened the page")), 5)
     assert "działa" not in capsys.readouterr().out
+
+
+async def test_web_exits_with_1_when_the_app_fails_to_start(monkeypatch):
+    import pytest
+
+    from ohbotchat.__main__ import _web
+
+    _web_apps(monkeypatch)
+
+    async def broken(self):
+        raise OSError("no robot port")
+
+    monkeypatch.setattr(_WebApp, "start", broken)
+    assert await asyncio.wait_for(_web(_free_port(), lambda url, server: pytest.fail("opened the page")), 5) == 1
