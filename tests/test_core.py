@@ -231,3 +231,14 @@ def test_write_atomic_leaves_the_old_file_when_writing_fails(tmp_path, monkeypat
     with pytest.raises(OSError):
         config_mod.write_atomic(path, "new")
     assert path.read_text(encoding="utf-8") == "old" and [p.name for p in tmp_path.iterdir()] == ["x.md"]
+
+
+def test_config_toml_lists_every_camera_key():
+    import tomllib
+    from dataclasses import fields
+
+    from ohbotchat.config import ROOT, CameraConfig
+
+    raw = tomllib.loads((ROOT / "config.toml").read_text(encoding="utf-8"))
+    # load_config skips unknown keys silently, so a typo here would quietly fall back to the default
+    assert set(raw["camera"]) == {f.name for f in fields(CameraConfig)}

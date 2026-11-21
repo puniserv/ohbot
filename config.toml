@@ -63,3 +63,28 @@ gesture_step_s = 0.25
 gesture_speed = 8
 # 0.5-1.5: shrinks or widens gestures around the rest pose.
 gesture_scale = 1.0
+
+[camera]
+# Face tracking. Frames stay in the app: never saved, logged or sent anywhere.
+enabled = true
+# 0 = built-in camera; try 1 or 2 for a USB camera.
+index = 0
+# Flip if the robot looks away from the child instead of at them.
+mirror = false
+# Camera beside the robot: shift (-1..1) until it looks at a child straight in front of it.
+offset_x = 0.0
+offset_y = 0.0
+# How far head and eyes turn for a face at the edge of the picture (0-5).
+head_gain = 3.0
+eye_gain = 4.0
+# The head moves only when its target is this far off; the eyes follow every frame.
+deadband = 0.5
+# 0 = jumpy, 0.95 = slow and smooth.
+smoothing = 0.5
+# Detector confidence (0.3-0.99); raise it if posters or shadows count as faces.
+min_score = 0.7
+# Seconds without a face before the head recentres and looks around again.
+lost_after_s = 3.0
+# Greet a child who walks up after nobody was there for greet_cooldown_s.
+auto_greet = true
+greet_cooldown_s = 60.0
