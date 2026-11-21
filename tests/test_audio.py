@@ -1,3 +1,4 @@
+import threading
 import asyncio
 import time
 
@@ -75,3 +76,23 @@ async def test_stop_ends_play_early():
     assert time.monotonic() - t0 < 0.1
     assert stream.aborted
     assert stream.written < len(sine(5.0))
+
+
+async def test_stop_aborts_from_the_playback_thread():
+    # regression: abort() from another thread while write() blocked made CoreAudio's write never return
+    class ThreadStream(FakeStream):
+        def write(self, data):
+            self.writer = threading.get_ident()
+            super().write(data)
+
+        def abort(self):
+            self.aborted_from = threading.get_ident()
+            super().abort()
+
+    stream = ThreadStream(delay=0.04)
+    speaker = Speaker(lambda rate: stream)
+    task = asyncio.create_task(speaker.play(sine(5.0)))
+    await asyncio.sleep(0.2)
+    speaker.stop()
+    assert await task is False
+    assert stream.aborted_from == stream.writer
