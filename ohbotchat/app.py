@@ -275,7 +275,7 @@ class App:
         self._remember(heard, reply.text)
         self.bus.publish("reply", text=reply.text)
         self._act("reply")
-        if await self._speak(reply.pcm):
+        if await self._speak(reply.pcm, reply.gesture):
             self._act("done")
         else:
             self._act(self._abort_action or "cancel")
@@ -301,7 +301,7 @@ class App:
             log.exception("could not play the fallback phrase")
         self._act("done")
 
-    async def _speak(self, pcm: bytes) -> bool:
+    async def _speak(self, pcm: bytes, gesture: str | None = None) -> bool:
         positions = lip_positions(envelope(pcm, 24000, FRAME_MS))
         loop = asyncio.get_running_loop()
         delay = self.config.robot.lip_delay_ms / 1000
@@ -316,10 +316,17 @@ class App:
             if i < len(positions):
                 lips(*positions[i])
 
+        moving = asyncio.create_task(self.robot.gesture(gesture)) if gesture else None
         try:
-            return await self.speaker.play(pcm, 24000, on_frame)
+            played = await self.speaker.play(pcm, 24000, on_frame)
+            if played and moving:  # a short "Tak!" should still get its whole nod
+                await moving
+            return played
         except asyncio.CancelledError:
             self.speaker.stop()
             raise
         finally:
+            if moving:
+                moving.cancel()
+                await asyncio.gather(moving, return_exceptions=True)
             lips(LIP_CLOSED, LIP_CLOSED)

@@ -711,3 +711,45 @@ async def test_mic_lost_during_stt_then_ignored_ends_idle(mode, transcript):
     gate.set()
     await settle(app)
     assert app.state == "idle" and not app.mic.running
+
+
+class GestureEngine(FakeEngine):
+    async def respond(self, heard, history, on_safe=None):
+        return Reply(heard=heard, text="Tak!", pcm=SPEECH_PCM, gesture="yes")
+
+
+async def test_reply_gesture_runs_on_the_robot_while_speaking():
+    speaker = FakeSpeaker(block=True)
+    app, _ = make(GestureEngine(), speaker=speaker)
+    seen = []
+
+    async def gesture(name):
+        seen.append((name, app.state))
+
+    app.robot.gesture = gesture
+    task = app.start_turn(LONG_ENOUGH)
+    await speaker.started.wait()
+    assert seen == [("yes", "speaking")]
+    speaker.stop()
+    await task
+
+
+async def test_stop_cuts_the_gesture_short():
+    speaker = FakeSpeaker(block=True)
+    app, _ = make(GestureEngine(), speaker=speaker)
+    cancelled = asyncio.Event()
+
+    async def gesture(name):
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    app.robot.gesture = gesture
+    task = app.start_turn(LONG_ENOUGH)
+    await speaker.started.wait()
+    app.stop()
+    await asyncio.gather(task, return_exceptions=True)
+    assert cancelled.is_set()
+    assert app.state == "idle"
