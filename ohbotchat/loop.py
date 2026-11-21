@@ -6,6 +6,8 @@ from .events import EventBus
 from .listen import FRAME_BYTES, FRAME_MS, LevelMeter, Segmenter, _mic_stream
 from .state import State
 
+BARGE_GAP_FRAMES = 3  # a child's voice dips between syllables; only this much quiet in a row resets the hold
+
 
 class MicLoop:
     """Hands-free capture (wake/continuous): one input stream, frames processed on the asyncio loop.
@@ -32,6 +34,7 @@ class MicLoop:
         self._stream = None
         self._buf = bytearray()
         self._loud: list[bytes] = []
+        self._quiet = 0
 
     @property
     def running(self) -> bool:
@@ -88,8 +91,11 @@ class MicLoop:
 
     def _watch_barge(self, frame: bytes, value: float) -> None:
         if value <= self._cfg.barge_in.threshold:
-            self._loud.clear()
+            self._quiet += 1
+            if self._quiet >= BARGE_GAP_FRAMES:
+                self._loud.clear()
             return
+        self._quiet = 0
         self._loud.append(frame)
         if len(self._loud) * FRAME_MS < self._cfg.barge_in.hold_ms:
             return

@@ -108,10 +108,19 @@ async def test_no_barge_in_below_threshold_or_with_gaps_or_disabled():
     rig.cfg.barge_in.enabled = True
     rig.mic.start()
     rig.state = State.SPEAKING
-    await rig.feed(*[SOFT] * 10, LOUD, LOUD, QUIET, LOUD, LOUD, QUIET)
+    await rig.feed(*[SOFT] * 10, LOUD, LOUD, QUIET, QUIET, QUIET, LOUD, LOUD, QUIET, QUIET, QUIET)
     rig.cfg.barge_in.enabled = False
     await rig.feed(*[LOUD] * 10)
     assert rig.barges == 0
+
+
+async def test_barge_in_hold_tolerates_short_gaps():
+    rig = Rig()
+    rig.cfg.barge_in.enabled = True
+    rig.mic.start()
+    rig.state = State.SPEAKING
+    await rig.feed(LOUD, QUIET, QUIET, LOUD, QUIET, LOUD)  # speech between syllables dips for a frame or two
+    assert rig.barges == 1
 
 
 async def test_stop_closes_stream_and_ignores_late_frames():
