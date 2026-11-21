@@ -97,6 +97,7 @@ class App:
             self.bus.publish("error", kind="other", message=f"Nie mogę włączyć mikrofonu: {e}")
             self._act("cancel")
             return
+        self._cancel_rec_timer()
         self._rec_timer = asyncio.get_running_loop().call_later(self.config.conversation.max_record_s, self.ptt_stop)
 
     def _cancel_rec_timer(self) -> None:

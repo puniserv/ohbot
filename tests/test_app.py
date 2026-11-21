@@ -350,3 +350,16 @@ async def test_set_mode_stores_mode_and_close_is_idempotent():
     await app.close()
     await app.close()
     assert driver.closed
+
+
+async def test_repeated_ptt_start_does_not_leave_an_orphan_timer():
+    app, _ = make()
+    app.config.conversation.max_record_s = 0.1
+    app.ptt_start()
+    await asyncio.sleep(0.05)
+    app.ptt_start()  # key auto-repeat re-arms the timer
+    await app.ptt_stop()
+    app.ptt_start()
+    await asyncio.sleep(0.07)  # past the first timer, before the new one
+    assert app.listener.recording
+    app.ptt_abort()
