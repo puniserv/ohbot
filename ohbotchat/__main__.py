@@ -49,7 +49,8 @@ async def terminal_loop(app, lines: asyncio.Queue) -> None:
             print("Nagrywam...")
             if await lines.get() is None:
                 break
-            await app.ptt_stop()
+            if task := app.ptt_stop():
+                await asyncio.gather(task, return_exceptions=True)
             await asyncio.sleep(0)  # let the printer flush the last events
     finally:
         printer.cancel()

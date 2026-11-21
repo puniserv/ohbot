@@ -293,3 +293,14 @@ async def test_history_trimmed_and_cleared():
     assert app.history[0] == {"role": "user", "content": "Cześć"}
     app.new_conversation()
     assert app.history == []
+
+
+async def test_stop_while_fallback_plays_does_not_stick_in_error():
+    speaker = FakeSpeaker(block=True)
+    app, _ = make(FakeEngine(fail=EngineError("network")), speaker)
+    task = app.start_turn(LONG_ENOUGH)
+    await speaker.started.wait()
+    assert app.state == "error"
+    app.stop()
+    await asyncio.gather(task, return_exceptions=True)
+    assert app.state == "idle"

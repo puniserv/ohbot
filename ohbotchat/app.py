@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from .audio import LIP_CLOSED, envelope, lip_positions
 from .config import Config
@@ -9,6 +10,8 @@ from .listen import Listener
 from .robot import OhbotDriver, Robot
 from .speak import FRAME_MS, Speaker
 from .state import State, transition
+
+log = logging.getLogger(__name__)
 
 MIN_PCM_BYTES = 16000 * 2 * 3 // 10  # under 0.3 s is a click, not speech
 _FALLBACK_KEY = {"network": "no_network", "moderated": "moderated", "empty": "not_heard"}
@@ -28,7 +31,8 @@ class App:
         self.state = State.IDLE
         self.history: list[dict] = []
         self._task: asyncio.Task | None = None
-        self._stopping = False
+        self._abort_action: str | None = None
+        self._ensure_task: asyncio.Task | None = None
         self._background: list[asyncio.Task] = []
 
     def _default_engine(self):
@@ -36,23 +40,38 @@ class App:
 
         from .engine_chain import ChainEngine
 
-        client = openai.AsyncOpenAI(api_key=self.config.api_key)
+        # retries would stretch the wait before the "no network" phrase to minutes
+        client = openai.AsyncOpenAI(api_key=self.config.api_key, max_retries=0)
         return ChainEngine(client, self.config, self.bus)
 
     async def start(self) -> None:
+        self.bus.bind(asyncio.get_running_loop())
         await asyncio.to_thread(self.robot.start)
-        self._background = [
-            asyncio.create_task(self.robot.idle_loop()),
-            asyncio.create_task(self.fallback.ensure(self.engine)),
-        ]
+        self._background = [asyncio.create_task(self.robot.idle_loop())]
+        self._ensure_fallback()
 
     async def close(self) -> None:
-        for t in self._background:
+        tasks = [*self._background, *filter(None, [self._task, self._ensure_task])]
+        for t in tasks:
             t.cancel()
         self.speaker.stop()
         self.listener.stop_ptt()
-        await asyncio.gather(*self._background, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
         await asyncio.to_thread(self.robot.close)
+
+    async def wait_background(self) -> None:
+        if self._ensure_task:
+            await asyncio.gather(self._ensure_task, return_exceptions=True)
+
+    def _ensure_fallback(self) -> None:
+        if self._ensure_task is None or self._ensure_task.done():
+            self._ensure_task = asyncio.create_task(self._ensure_phrases())
+
+    async def _ensure_phrases(self) -> None:
+        try:
+            await self.fallback.ensure(self.engine)
+        except Exception:
+            log.exception("fallback phrase generation failed")
 
     def _act(self, action: str) -> None:
         new = transition(self.state, action)
@@ -61,29 +80,42 @@ class App:
             self.robot.set_state(new)
             self.bus.publish("state", state=new.value)
 
+    def _busy(self) -> bool:
+        return self._task is not None and not self._task.done()
+
     def ptt_start(self) -> None:
+        """Pressing the button while the robot talks or thinks interrupts it, then starts listening."""
+        if self.state in (State.TRANSCRIBING, State.THINKING, State.SPEAKING, State.ERROR):
+            self.stop(relisten=True)
         self._act("listen")
         self.listener.start_ptt()
 
-    async def ptt_stop(self) -> None:
-        await self.handle_utterance(self.listener.stop_ptt())
+    def ptt_stop(self) -> asyncio.Task | None:
+        """Ends the recording and starts the turn in its own task; None if nothing was recording."""
+        if not self.listener.recording:
+            return None
+        return self.start_turn(self.listener.stop_ptt())
+
+    def start_turn(self, pcm: bytes) -> asyncio.Task:
+        if not self._busy():
+            self._abort_action = None
+            self._task = asyncio.create_task(self.handle_utterance(pcm))
+        return self._task
 
     def new_conversation(self) -> None:
         self.history.clear()
 
-    def stop(self) -> None:
-        """Interrupts whatever is going on; a speaking robot then lands in LISTENING (see state table)."""
+    def stop(self, relisten: bool = False) -> None:
+        """Interrupts the turn. Ends in LISTENING if the mic is wanted next (barge-in, button), else IDLE."""
+        self._abort_action = "stop" if relisten or self.config.conversation.mode != "ptt" else "cancel"
         self.speaker.stop()
-        if self.state in (State.TRANSCRIBING, State.THINKING) and self._task:
-            self._stopping = True
+        if self._busy():
             self._task.cancel()
         elif self.state == State.LISTENING:
             self.listener.stop_ptt()
-            self._act("stop")
+            self._act(self._abort_action)
 
     async def handle_utterance(self, pcm: bytes) -> None:
-        self._task = asyncio.current_task()
-        self._stopping = False
         try:
             if self.state == State.IDLE:
                 self._act("listen")
@@ -97,35 +129,54 @@ class App:
             self._remember(heard, reply.text)
             self.bus.publish("reply", text=reply.text)
             self._act("reply")
-            self._act("done" if await self._speak(reply.pcm) else "stop")
+            if await self._speak(reply.pcm):
+                self._act("done")
+            else:
+                self._act(self._abort_action or "cancel")
+            if not self.fallback.complete():
+                self._ensure_fallback()
         except EngineError as e:
             await self._fail(e)
         except asyncio.CancelledError:
-            if not self._stopping:
-                raise
-            self._task.uncancel()  # our own stop(), not the caller's cancellation
-            self._act("stop")
-        finally:
-            self._task = None
+            self._act(self._abort_action or "cancel")
+            raise
+        except Exception as e:
+            log.exception("turn failed")
+            await self._fail(EngineError("other", str(e)))
 
     def _remember(self, heard: str, text: str) -> None:
-        self.history += [{"role": "user", "content": heard}, {"role": "assistant", "content": text}]
-        del self.history[: -self.config.conversation.history_turns * 2]
+        n = self.config.conversation.history_turns
+        self.history = [*self.history, {"role": "user", "content": heard}, {"role": "assistant", "content": text}]
+        self.history = self.history[-2 * n :] if n else []
 
     async def _fail(self, e: EngineError) -> None:
         self.bus.publish("error", kind=e.kind, message=str(e))
         self._act("error")
-        pcm = self.fallback.get(_FALLBACK_KEY.get(e.kind, "error"))
-        if pcm:
-            await self._speak(pcm)
+        try:
+            pcm = self.fallback.get(_FALLBACK_KEY.get(e.kind, "error"))
+            if pcm:
+                await self._speak(pcm)
+        except asyncio.CancelledError:  # handlers of handle_utterance's own try do not cover this one
+            self._act(self._abort_action or "cancel")
+            raise
+        except Exception:
+            log.exception("could not play the fallback phrase")
         self._act("done")
 
     async def _speak(self, pcm: bytes) -> bool:
         positions = lip_positions(envelope(pcm, 24000, FRAME_MS))
+        loop = asyncio.get_running_loop()
+        delay = self.config.robot.lip_delay_ms / 1000
 
-        def on_frame(i: int) -> None:  # called from the speaker thread; robot.lips only enqueues
+        def lips(top: float, bottom: float) -> None:  # robot.lips only enqueues, so any thread may call it
+            if delay:
+                loop.call_soon_threadsafe(loop.call_later, delay, self.robot.lips, top, bottom)
+            else:
+                self.robot.lips(top, bottom)
+
+        def on_frame(i: int) -> None:  # called from the speaker thread
             if i < len(positions):
-                self.robot.lips(*positions[i])
+                lips(*positions[i])
 
         try:
             return await self.speaker.play(pcm, 24000, on_frame)
@@ -133,4 +184,4 @@ class App:
             self.speaker.stop()
             raise
         finally:
-            self.robot.lips(LIP_CLOSED, LIP_CLOSED)
+            lips(LIP_CLOSED, LIP_CLOSED)
