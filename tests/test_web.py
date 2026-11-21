@@ -461,3 +461,27 @@ def test_persona_text_read_and_written(client, app, tmp_path):
     assert client.put("/api/persona/nowa", json={"text": "x"}, headers=ORIGIN).status_code == 404
     assert client.get("/api/persona/..%2Fconfig").status_code == 404
     assert not (tmp_path / "personas" / "nowa.md").exists()
+
+
+def test_idle_is_held_while_any_tab_has_the_test_panel_open(client, app):
+    with connect(client) as a:
+        snapshot(a)
+        with connect(client) as b:
+            snapshot(b)
+            a.send_json({"cmd": "test_panel", "open": True})
+            b.send_json({"cmd": "test_panel", "open": True})
+            sync(a, app)
+            sync(b, app)
+            a.send_json({"cmd": "test_panel", "open": False})
+            sync(a, app)
+            assert app.robot.hold_idle is True  # tab b still has it open
+            b.send_json({"cmd": "test_panel", "open": False})
+            sync(b, app)
+            assert app.robot.hold_idle is False
+            b.send_json({"cmd": "test_panel", "open": True})
+            sync(b, app)
+        client.get("/")
+        assert app.robot.hold_idle is False  # b went away with its panel open
+        a.send_json({"cmd": "test_panel", "open": False})  # a never reopened; closing twice must not go negative
+        sync(a, app)
+        assert app.robot.hold_idle is False

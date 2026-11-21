@@ -77,6 +77,11 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
 
     api = FastAPI(lifespan=lifespan)
     tasks: set[asyncio.Task] = set()
+    panels: set[WebSocket] = set()  # connections with the motion test panel open
+
+    def set_panel(ws: WebSocket, open_: bool) -> None:
+        (panels.add if open_ else panels.discard)(ws)
+        app.robot.hold_idle = bool(panels)
 
     def guard(request: Request) -> None:
         # a same-origin GET sends no Origin, so reads check the Host only; writes need both
@@ -116,7 +121,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             log.exception("doctor failed")
             app.bus.publish("error", kind="other", message=f"Diagnostyka nie powiodła się: {e}")
 
-    def command(msg: dict) -> None:
+    def command(msg: dict, ws: WebSocket) -> None:
         cmd = msg.get("cmd")
         if cmd == "ptt_start":
             app.ptt_start()
@@ -130,7 +135,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
         elif cmd == "test_panel":
             if not isinstance(msg.get("open"), bool):
                 raise ValueError("bad test_panel")
-            app.robot.hold_idle = msg["open"]
+            set_panel(ws, msg["open"])
         elif cmd in ("gesture", "motor", "close_mouth", "neutral", "say", "voice_sample"):
             manual(cmd, msg)
         elif cmd == "mode" and msg.get("value") in MODES:
@@ -210,7 +215,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
                     msg = json.loads(text)
                     if not isinstance(msg, dict):
                         raise ValueError("not an object")
-                    command(msg)
+                    command(msg, ws)
                 except ValueError as e:  # includes JSONDecodeError
                     log.warning("ignored websocket command %.100r: %s", text, e)
                 except Exception:
@@ -223,7 +228,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             app.bus.unsubscribe(q)
             if app.listener.recording:
                 app.ptt_abort()
-            app.robot.hold_idle = False  # a closed tab cannot close its test panel
+            set_panel(ws, False)  # a closed tab cannot close its test panel
 
     @api.get("/api/settings", dependencies=[Depends(guard)])
     def get_settings() -> dict:
