@@ -179,6 +179,7 @@ class App:
             self._act(self._abort_action)
 
     async def handle_utterance(self, pcm: bytes) -> None:
+        mode = self.config.conversation.mode  # a switch from the UI applies from the next utterance
         try:
             if self.state == State.IDLE:
                 self._act("listen")
@@ -186,13 +187,13 @@ class App:
             if len(pcm) < MIN_PCM_BYTES:
                 raise EngineError("empty")
             heard = await self.engine.transcribe(pcm)
-            if self.config.conversation.mode == "wake":
+            if mode == "wake":
                 heard = await self._wake(heard)
                 if heard is None:
                     return
             await self._respond(heard)
         except EngineError as e:
-            if e.kind == "empty" and self.mic.running:  # room noise must not make the robot say "nie usłyszałem"
+            if e.kind == "empty" and mode != "ptt":  # room noise must not make the robot say "nie usłyszałem"
                 self._ignore("nic nie rozpoznano")
             else:
                 await self._fail(e)

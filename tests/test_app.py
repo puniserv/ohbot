@@ -588,3 +588,18 @@ async def test_start_runs_mic_loop_when_configured_hands_free():
     await app.start()
     assert app.mic.running and app.state == "listening"
     await app.close()
+
+
+async def test_mode_switch_during_stt_does_not_change_the_running_turn():
+    engine = Recorder("raz")
+    app, mic = hands_free("continuous", engine)
+    orig = engine.transcribe
+
+    async def switching(pcm):
+        app.set_mode("wake")
+        return await orig(pcm)
+
+    engine.transcribe = switching
+    await mic.say()
+    await settle(app)
+    assert engine.heard == ["raz"]
