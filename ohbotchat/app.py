@@ -5,13 +5,13 @@ import random
 import time
 
 from .audio import envelope, lip_positions
-from .config import Config
+from .config import Config, validate_settings
 from .engine import EngineError
 from .events import EventBus
 from .fallback import FILLERS, PHRASES, Fallback
 from .listen import Listener, wake_match
 from .loop import MicLoop
-from .robot import OhbotDriver, Robot
+from .robot import HEADNOD, HEADTURN, OhbotDriver, Robot
 from .speak import FRAME_MS, Speaker
 from .state import State, transition
 from .vision import Vision
@@ -84,6 +84,20 @@ class App:
             self.greet()
         if self.config.conversation.mode != "ptt":
             self._start_mic()
+
+    def calibrate(self) -> str:
+        """Camera offsets that make tracking reproduce the head pose the operator set with the test sliders."""
+        face, c = self.vision.face, self.config.camera
+        if face is None or time.monotonic() - face.t > STALE_FACE_S:
+            return "Nie widzę twarzy – stań przed kamerą."
+        if not c.head_gain:
+            return "Ustaw „Ruch głowy” powyżej 0."
+        offsets = {}
+        for key, v, offset, motor in (("offset_x", face.x, c.offset_x, HEADTURN), ("offset_y", face.y, c.offset_y, HEADNOD)):
+            want = (self.robot.manual_pos.get(motor, 5.0) - 5) / c.head_gain
+            offsets[key] = round(min(1.0, max(-1.0, want - (v - offset))), 2)  # face.x/y already include the old offset
+        self.apply_settings(validate_settings({"camera": offsets}))
+        return f"Skalibrowano: poziomo {offsets['offset_x']}, pionowo {offsets['offset_y']}. Kliknij „Zapisz” w Ustawieniach."
 
     def apply_settings(self, values: dict[str, dict]) -> None:
         """`values` must come from config.validate_settings; everything else reads the config when used."""

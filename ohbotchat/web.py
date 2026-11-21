@@ -149,7 +149,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             if not isinstance(msg.get("open"), bool):
                 raise ValueError("bad test_panel")
             set_panel(ws, msg["open"])
-        elif cmd in ("gesture", "motor", "close_mouth", "neutral", "say", "voice_sample"):
+        elif cmd in ("gesture", "motor", "close_mouth", "neutral", "calibrate", "say", "voice_sample"):
             manual(cmd, msg)
         elif cmd == "mode" and msg.get("value") in MODES:
             app.set_mode(msg["value"])
@@ -188,6 +188,9 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             run = app.robot.close_mouth
         elif cmd == "neutral":
             run = app.robot.neutral
+        elif cmd == "calibrate":
+            def run() -> None:
+                app.bus.publish("error", kind="other", message=app.calibrate())  # "other" errors are the UI's plain toast
         elif cmd == "say":
             text = msg.get("text")
             if not isinstance(text, str) or not text.strip() or len(text) > MAX_SAY:

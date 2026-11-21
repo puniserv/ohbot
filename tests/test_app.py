@@ -8,7 +8,7 @@ from ohbotchat.config import load_config
 from ohbotchat.engine import EngineError, Reply
 from ohbotchat.events import EventBus
 from ohbotchat.listen import Segmenter
-from ohbotchat.robot import BOTTOMLIP, EYETURN, HEADNOD, TOPLIP, NullDriver, Robot
+from ohbotchat.robot import BOTTOMLIP, EYETURN, HEADNOD, HEADTURN, TOPLIP, NullDriver, Robot
 from ohbotchat.vision import Face
 
 SPEECH_PCM = b"\x00\x20" * 24000  # 1 s of loud-ish signal at 24 kHz
@@ -1187,3 +1187,23 @@ async def test_a_stale_face_from_a_hung_camera_is_not_tracked():
     app.robot.flush()
     assert ("move", EYETURN, 7.0, 8) not in driver.calls
     await app.close()
+
+
+async def test_calibrate_sets_offsets_so_the_tracked_pose_matches_the_slider_pose():
+    app, _ = make()
+    c = app.config.camera
+    c.head_gain, c.offset_x, c.offset_y = 2.0, 0.1, 0.0
+    app.vision.face = Face(0.3, -0.2, time.monotonic())  # raw x 0.2, raw y -0.2
+    app.robot.move(HEADTURN, 7.0)  # operator turned the head to look at the child
+    app.robot.move(HEADNOD, 6.0)
+    msg = app.calibrate()
+    assert (c.offset_x, c.offset_y) == (0.8, 0.7)  # (7-5)/2 - 0.2, (6-5)/2 + 0.2
+    assert "Zapisz" in msg
+
+
+async def test_calibrate_without_a_face_changes_nothing():
+    app, _ = make()
+    app.config.camera.offset_x = 0.1
+    app.vision.face = None
+    assert "twarz" in app.calibrate()
+    assert app.config.camera.offset_x == 0.1

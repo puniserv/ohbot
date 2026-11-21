@@ -75,6 +75,10 @@ class FakeApp:
     def voice_sample(self, voice):
         self.calls.append(f"sample:{voice}")
 
+    def calibrate(self):
+        self.calls.append("calibrate")
+        return "Skalibrowano"
+
     def apply_settings(self, values):
         self.calls.append(("apply", values))
         for section, keys in values.items():
@@ -519,3 +523,12 @@ async def test_web_doctor_reports_a_camera_that_is_still_starting():
     app.vision.ok = None
     kamera = next(r for r in await web._run_doctor(app) if r.name == "Kamera")
     assert kamera.ok is None and kamera.detail == "kamera uruchamia się"
+
+
+def test_calibrate_reports_its_result_as_a_toast(client, app):
+    with connect(client) as ws:
+        snapshot(ws)
+        ws.send_json({"cmd": "calibrate"})
+        while (msg := ws.receive_json())["type"] != "error":
+            pass
+    assert app.calls == ["calibrate"] and msg["data"]["message"] == "Skalibrowano"

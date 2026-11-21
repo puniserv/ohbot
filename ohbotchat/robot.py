@@ -136,6 +136,7 @@ class Robot:
         self._pos: dict[int, float] = {}  # last tracking position sent per motor; any other move clears it
         self._tracked = False
         self._gesturing = 0
+        self.manual_pos: dict[int, float] = {}  # slider positions, read by App.calibrate
 
     @property
     def connected(self) -> bool:
@@ -201,7 +202,8 @@ class Robot:
     def move(self, motor: int, pos: float) -> None:
         """Raw motor position for the test panel: no lip inversion."""
         self.pause_idle()
-        self._submit(self._driver.move, motor, min(10, max(0, pos)), 10)
+        self.manual_pos[motor] = pos = min(10, max(0, pos))
+        self._submit(self._driver.move, motor, pos, 10)
 
     def close_mouth(self) -> None:
         self.pause_idle()
@@ -209,6 +211,7 @@ class Robot:
         self.lips(closed, closed)
 
     def neutral(self) -> None:
+        self.manual_pos.clear()
         self._submit(self._gesture_step, _NEUTRAL)
         self.close_mouth()
 

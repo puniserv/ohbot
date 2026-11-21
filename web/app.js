@@ -318,6 +318,7 @@ $("test-close").onclick = () => {
 };
 $("close-mouth").onclick = () => send({ cmd: "close_mouth" });
 $("neutral").onclick = () => send({ cmd: "neutral" });
+$("calibrate").onclick = () => send({ cmd: "calibrate" });
 $("say").onclick = () => {
   const text = $("say-text").value.trim();
   if (text) send({ cmd: "say", text });
