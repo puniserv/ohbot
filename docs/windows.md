@@ -14,12 +14,26 @@
 3. Plug in the robot, then double-click `ohbot-chat.exe` or run it from a terminal:
 
    ```
-   ohbot-chat.exe doctor     # checks key, internet, models, mic, speaker, robot
+   ohbot-chat.exe doctor     # checks key, internet, models, mic, speaker, robot, camera
    ohbot-chat.exe            # web UI in the default browser
    ohbot-chat.exe --window   # web UI in its own window
    ```
 
 `--window` uses Edge WebView2, which ships with Windows 10/11. If pywebview is missing (a source install without the `desktop` group), the app logs a warning and opens the browser.
+
+## Camera
+
+The robot turns its eyes and head toward the nearest face and greets a child who walks up. Settings are in "Ustawienia" > "Kamera" and in `[camera]` in `config.toml`.
+
+**Privacy:** camera frames never leave the app. They are not saved, not logged, and not sent to OpenAI or to the browser. The UI receives only the face position (the dot in "Kamera").
+
+- Windows: Settings > Privacy & security > Camera: turn on "Camera access" and "Let desktop apps access your camera".
+- macOS (run from source): System Settings > Privacy & Security > Camera: allow the terminal app that runs `uv run ohbotchat`.
+- Calibration: stand straight in front of the robot and move "Przesunięcie poziome" until the robot looks at you. If it turns away from you, tick "Odbicie lustrzane".
+- `ohbot-chat.exe doctor` checks that the camera returns a frame and that the face model loads.
+- To turn the camera off, untick "Śledzenie twarzy" or set `enabled = false`. The camera is then released.
+
+The face model is YuNet (`ohbotchat/models/face_detection_yunet_2023mar.onnx`) from OpenCV Zoo, MIT licence.
 
 ## Build
 
@@ -55,6 +69,11 @@ Here `.env` goes in the repo root.
 - Settings > Privacy & security > Microphone: turn on "Microphone access" and "Let desktop apps access your microphone".
 - Run `ohbot-chat.exe doctor` in a terminal. It lists the input devices and, when run interactively, shows the level while you speak.
 - If another app holds the mic in exclusive mode (Teams, Zoom), close it or turn off "Allow applications to take exclusive control" in the device's advanced properties.
+
+**"Kamera niedostępna"**
+- Another app may hold the camera (Teams, Zoom, the Camera app). Close it. The app retries every 5 s.
+- With more than one camera, try "Numer kamery" 1 or 2 in "Ustawienia".
+- Check the camera permission (see "Camera" above). The rest of the app keeps working without the camera.
 
 **`--window` opens the browser instead**: the window could not start, usually because Edge WebView2 is missing (the log says "brak WebView2?"). Install the WebView2 Runtime from Microsoft, or just use the browser.
 
