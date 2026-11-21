@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ohbot</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="offline" hidden>Brak połączenia z aplikacją</div>
+<div id="nokey" hidden>Brak klucza OPENAI_API_KEY. Uzupełnij plik .env i uruchom aplikację ponownie.</div>
+<div id="toast" hidden></div>
+
+<main>
+  <section id="subtitles" aria-live="polite"></section>
+  <aside>
+    <h2>Jak myśli robot</h2>
+    <div id="robot-dot" title="Stan robota"></div>
+    <div id="robot-state"></div>
+    <ol id="pipeline">
+      <li data-stage="mic"><b>Mikrofon</b><span>Łapie Twój głos.</span></li>
+      <li data-stage="stt"><b>Tekst</b><span>Zamienia mowę na napisy.</span></li>
+      <li data-stage="moderation_in"><b>Filtr</b><span>Sprawdza, czy pytanie jest bezpieczne.</span></li>
+      <li data-stage="chat"><b>Model AI</b><span>Wymyśla odpowiedź.</span></li>
+      <li data-stage="moderation_out"><b>Filtr</b><span>Sprawdza, czy odpowiedź jest bezpieczna.</span></li>
+      <li data-stage="tts"><b>Głos</b><span>Zamienia tekst na mowę.</span></li>
+      <li data-stage="robot"><b>Robot</b><span>Mówi i rusza ustami.</span></li>
+    </ol>
+  </aside>
+</main>
+
+<div id="doctor-panel" hidden>
+  <div class="panel-head"><h2>Diagnostyka</h2><button id="doctor-close">Zamknij</button></div>
+  <ul id="doctor-results"></ul>
+</div>
+
+<footer>
+  <button id="talk">Przytrzymaj i mów</button>
+  <button id="stop">Stop (Esc)</button>
+  <button id="new">Nowa rozmowa</button>
+  <label>Tryb
+    <select id="mode">
+      <option value="ptt">Przycisk</option>
+      <option value="wake">Słowo „Ohbot”</option>
+      <option value="continuous">Ciągła rozmowa</option>
+    </select>
+  </label>
+  <label>Osobowość <select id="persona"></select></label>
+  <label class="barge"><input type="checkbox" id="barge-on"> Przerywanie głosem
+    <input type="range" id="barge-threshold" min="0.02" max="0.6" step="0.01">
+  </label>
+  <div id="meter" title="Poziom mikrofonu"><div id="meter-bar"></div></div>
+  <span id="robot-badge" class="badge">Robot: ?</span>
+  <button id="doctor">Diagnostyka</button>
+</footer>
+<script src="app.js"></script>
+</body>
+</html>
