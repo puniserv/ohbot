@@ -127,9 +127,11 @@ class Vision:
         if not c.enabled:
             self._release()
             self._set_ok(None)
+            self._retry_at = 0.0  # re-enabling retries at once
             return
         if c.index != self._index:
             self._release()
+            self._set_ok(None)  # so a failure of the new camera toasts again
             self._index, self._retry_at = c.index, 0.0
         if self._cap is None:
             if now < self._retry_at:

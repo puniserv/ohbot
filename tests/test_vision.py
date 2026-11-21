@@ -235,3 +235,24 @@ def test_camera_keeps_one_buffered_frame_so_detection_sees_the_latest(monkeypatc
     monkeypatch.setattr(cv2, "VideoCapture", Cap)  # no real camera is opened
     vision._open_camera(0)
     assert props[cv2.CAP_PROP_BUFFERSIZE] == 1
+
+
+def test_re_enabling_a_failed_camera_retries_at_once():
+    r = rig()
+    r.opened = False
+    r.vision.step(0)
+    r.cfg.camera.enabled = False
+    r.vision.step(1)
+    r.cfg.camera.enabled = True
+    r.opened = True
+    r.vision.step(2)
+    assert len(r.cams) == 2 and r.vision.ok is True
+
+
+def test_a_new_camera_index_that_also_fails_toasts_again():
+    r = rig()
+    r.opened = False
+    r.vision.step(0)
+    r.cfg.camera.index = 1
+    r.vision.step(1)
+    assert len(r.cams) == 2 and [t for t, _ in r.bus.events].count("error") == 2
