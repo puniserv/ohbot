@@ -4,12 +4,15 @@ import logging
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict
+from functools import partial
 
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
+from .config import VOICES, editable_settings, save_settings, validate_settings
 from .doctor import run_doctor
+from .engine import GESTURES
 
 log = logging.getLogger(__name__)
 
@@ -17,6 +20,11 @@ HOST = "127.0.0.1"  # the UI has no auth, so it must never listen on a network i
 DEFAULT_PORT = 8765
 ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost"})
 MODES = ("ptt", "wake", "continuous")
+MANUAL_GESTURES = tuple(g for g in GESTURES if g != "none")
+MOTORS = range(7)
+MAX_SAY = 300
+MAX_PERSONA = 8000
+BUSY = "Robot jest zajęty – spróbuj, gdy skończy"
 
 
 class _RunningRobot:
@@ -39,10 +47,21 @@ def server_config(web_app: FastAPI, port: int = DEFAULT_PORT) -> uvicorn.Config:
     return uvicorn.Config(web_app, host=HOST, port=port, log_level="warning")
 
 
-def _same_origin(ws: WebSocket, allowed_hosts) -> bool:
-    """Any web page can open ws://127.0.0.1, so Origin must match; the Host check also stops DNS rebinding."""
-    host = ws.headers.get("host", "")
-    return host.partition(":")[0] in allowed_hosts and ws.headers.get("origin") == f"http://{host}"
+def _same_origin(conn: WebSocket | Request, allowed_hosts) -> bool:
+    """Any web page can open ws://127.0.0.1 or POST to it, so Origin must match; the Host check also stops DNS rebinding."""
+    host = conn.headers.get("host", "")
+    return host.partition(":")[0] in allowed_hosts and conn.headers.get("origin") == f"http://{host}"
+
+
+def _number(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+async def _json(request: Request):
+    try:
+        return await request.json()
+    except ValueError:
+        raise HTTPException(400, "invalid JSON") from None
 
 
 def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowed_hosts=ALLOWED_HOSTS) -> FastAPI:
@@ -58,6 +77,15 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
 
     api = FastAPI(lifespan=lifespan)
     tasks: set[asyncio.Task] = set()
+
+    def guard(request: Request) -> None:
+        # a same-origin GET sends no Origin, so reads check the Host only; writes need both
+        if request.method == "GET":
+            ok = request.headers.get("host", "").partition(":")[0] in allowed_hosts
+        else:
+            ok = _same_origin(request, allowed_hosts)
+        if not ok:
+            raise HTTPException(403)
 
     def personas() -> list[str]:
         return sorted(p.stem for p in (cfg.root / "personas").glob("*.md"))
@@ -98,6 +126,13 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             app.stop()
         elif cmd == "new":
             app.new_conversation()
+            app.greet()
+        elif cmd == "test_panel":
+            if not isinstance(msg.get("open"), bool):
+                raise ValueError("bad test_panel")
+            app.robot.hold_idle = msg["open"]
+        elif cmd in ("gesture", "motor", "close_mouth", "neutral", "say", "voice_sample"):
+            manual(cmd, msg)
         elif cmd == "mode" and msg.get("value") in MODES:
             app.set_mode(msg["value"])
             app.bus.publish("settings", **settings())
@@ -119,6 +154,35 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             task.add_done_callback(tasks.discard)
         else:
             raise ValueError(f"unknown command {cmd!r}")
+
+    def manual(cmd: str, msg: dict) -> None:
+        """Test panel commands; validated first so a bad one is ignored, not reported as busy."""
+        if cmd == "gesture":
+            if msg.get("name") not in MANUAL_GESTURES:
+                raise ValueError("bad gesture")
+            run = partial(app.manual_gesture, msg["name"])
+        elif cmd == "motor":
+            motor, pos = msg.get("motor"), msg.get("pos")
+            if isinstance(motor, bool) or motor not in MOTORS or not _number(pos):
+                raise ValueError("bad motor")
+            run = partial(app.robot.move, motor, min(10, max(0, pos)))
+        elif cmd == "close_mouth":
+            run = app.robot.close_mouth
+        elif cmd == "neutral":
+            run = app.robot.neutral
+        elif cmd == "say":
+            text = msg.get("text")
+            if not isinstance(text, str) or not text.strip() or len(text) > MAX_SAY:
+                raise ValueError("bad say")
+            run = partial(app.say, text.strip())
+        else:
+            if msg.get("voice") not in VOICES:
+                raise ValueError("bad voice")
+            run = partial(app.voice_sample, msg["voice"])
+        if not app.ready():
+            app.bus.publish("error", kind="other", message=BUSY)
+            return
+        run()
 
     async def pump(ws: WebSocket, q: asyncio.Queue) -> None:
         while True:
@@ -159,6 +223,45 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             app.bus.unsubscribe(q)
             if app.listener.recording:
                 app.ptt_abort()
+            app.robot.hold_idle = False  # a closed tab cannot close its test panel
+
+    @api.get("/api/settings", dependencies=[Depends(guard)])
+    def get_settings() -> dict:
+        return {"values": editable_settings(cfg), "voices": VOICES, "gestures": MANUAL_GESTURES}
+
+    @api.post("/api/settings", dependencies=[Depends(guard)])
+    async def post_settings(request: Request) -> dict:
+        try:
+            values = validate_settings(await _json(request))
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        app.apply_settings(values)
+        app.bus.publish("settings", **settings())
+        return {"values": editable_settings(cfg)}
+
+    @api.post("/api/settings/save", dependencies=[Depends(guard)])
+    def save() -> dict:
+        save_settings(cfg.root / "config.toml", editable_settings(cfg))
+        return {"ok": True}
+
+    def persona_path(name: str):
+        if name not in personas():  # existing files only, so no path can be smuggled in
+            raise HTTPException(404)
+        return cfg.root / "personas" / f"{name}.md"
+
+    @api.get("/api/persona/{name}", dependencies=[Depends(guard)])
+    def get_persona(name: str) -> dict:
+        return {"text": persona_path(name).read_text(encoding="utf-8")}
+
+    @api.put("/api/persona/{name}", dependencies=[Depends(guard)])
+    async def put_persona(name: str, request: Request) -> dict:
+        path = persona_path(name)
+        body = await _json(request)
+        text = body.get("text") if isinstance(body, dict) else None
+        if not isinstance(text, str) or not text.strip() or len(text) > MAX_PERSONA:
+            raise HTTPException(400, f"expected 1..{MAX_PERSONA} characters")
+        path.write_text(text, encoding="utf-8")
+        return {"ok": True}
 
     api.mount("/", StaticFiles(directory=web_dir, html=True), name="static")
     return api

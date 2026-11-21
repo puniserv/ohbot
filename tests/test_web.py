@@ -12,6 +12,18 @@ from ohbotchat.web import DEFAULT_PORT, create_app, server_config
 class FakeRobot:
     connected = True
 
+    def __init__(self):
+        self.calls, self.hold_idle = [], False
+
+    def move(self, motor, pos):
+        self.calls.append(("move", motor, pos))
+
+    def close_mouth(self):
+        self.calls.append("close_mouth")
+
+    def neutral(self):
+        self.calls.append("neutral")
+
 
 class FakeApp:
     def __init__(self):
@@ -45,6 +57,27 @@ class FakeApp:
 
     def new_conversation(self):
         self.calls.append("new")
+
+    def greet(self):
+        self.calls.append("greet")
+
+    def ready(self):
+        return self.state == "idle"
+
+    def manual_gesture(self, name):
+        self.calls.append(f"gesture:{name}")
+
+    def say(self, text):
+        self.calls.append(f"say:{text}")
+
+    def voice_sample(self, voice):
+        self.calls.append(f"sample:{voice}")
+
+    def apply_settings(self, values):
+        self.calls.append(("apply", values))
+        for section, keys in values.items():
+            for k, v in keys.items():
+                setattr(getattr(self.config, section), k, v)
 
 
 async def fake_doctor(app):
@@ -120,14 +153,14 @@ def test_bus_events_are_streamed(client, app):
 
 @pytest.mark.parametrize(
     "cmd,call",
-    [("ptt_start", "ptt_start"), ("ptt_stop", "ptt_stop"), ("stop", "stop"), ("new", "new")],
+    [("ptt_start", ["ptt_start"]), ("ptt_stop", ["ptt_stop"]), ("stop", ["stop"]), ("new", ["new", "greet"])],
 )
 def test_simple_commands_call_app(client, app, cmd, call):
     with connect(client) as ws:
         snapshot(ws)
         ws.send_json({"cmd": cmd})
         sync(ws, app)
-    assert app.calls == [call]
+    assert app.calls == call
 
 
 def test_mode_persona_and_barge_in_are_stored_and_broadcast(client, app):
@@ -282,3 +315,149 @@ async def test_web_doctor_never_touches_the_robot_driver(monkeypatch):
     app.config.api_key = None
     results = await web._run_doctor(app)
     assert touched == [] and next(r for r in results if r.name == "Ohbot").ok is True
+
+
+@pytest.mark.parametrize(
+    "msg,call",
+    [
+        ({"cmd": "gesture", "name": "yes"}, "gesture:yes"),
+        ({"cmd": "say", "text": " Dzień dobry "}, "say:Dzień dobry"),
+        ({"cmd": "voice_sample", "voice": "ash"}, "sample:ash"),
+    ],
+)
+def test_test_commands_call_app_when_idle(client, app, msg, call):
+    with connect(client) as ws:
+        snapshot(ws)
+        ws.send_json(msg)
+        sync(ws, app)
+    assert app.calls == [call]
+
+
+def test_motor_commands_are_clamped_and_reach_the_robot(client, app):
+    with connect(client) as ws:
+        snapshot(ws)
+        ws.send_json({"cmd": "motor", "motor": 4, "pos": 12})
+        ws.send_json({"cmd": "motor", "motor": 0, "pos": 2.5})
+        ws.send_json({"cmd": "close_mouth"})
+        ws.send_json({"cmd": "neutral"})
+        sync(ws, app)
+    assert app.robot.calls == [("move", 4, 10), ("move", 0, 2.5), "close_mouth", "neutral"]
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [
+        {"cmd": "gesture", "name": "none"},
+        {"cmd": "gesture", "name": "dance"},
+        {"cmd": "motor", "motor": 7, "pos": 5},
+        {"cmd": "motor", "motor": True, "pos": 5},
+        {"cmd": "motor", "motor": 1, "pos": "5"},
+        {"cmd": "say", "text": ""},
+        {"cmd": "say", "text": "x" * 301},
+        {"cmd": "voice_sample", "voice": "darth"},
+        {"cmd": "test_panel", "open": "yes"},
+    ],
+)
+def test_invalid_test_commands_are_ignored(client, app, msg):
+    with connect(client) as ws:
+        snapshot(ws)
+        ws.send_json(msg)
+        sync(ws, app)
+    assert app.calls == [] and app.robot.calls == [] and app.robot.hold_idle is False
+
+
+@pytest.mark.parametrize(
+    "msg",
+    [{"cmd": "gesture", "name": "yes"}, {"cmd": "motor", "motor": 1, "pos": 5}, {"cmd": "close_mouth"}, {"cmd": "neutral"}, {"cmd": "say", "text": "a"}, {"cmd": "voice_sample", "voice": "ash"}],
+)
+def test_test_commands_are_rejected_unless_idle(client, app, msg):
+    app.state = "speaking"
+    with connect(client) as ws:
+        snapshot(ws)
+        ws.send_json(msg)
+        e = ws.receive_json()
+    assert e["type"] == "error" and "zajęty" in e["data"]["message"]
+    assert app.calls == [] and app.robot.calls == []
+
+
+def test_test_panel_holds_idle_moves_until_closed_or_disconnect(client, app):
+    with connect(client) as ws:
+        snapshot(ws)
+        ws.send_json({"cmd": "test_panel", "open": True})
+        sync(ws, app)
+        assert app.robot.hold_idle is True
+        ws.send_json({"cmd": "test_panel", "open": False})
+        sync(ws, app)
+        assert app.robot.hold_idle is False
+        ws.send_json({"cmd": "test_panel", "open": True})
+        sync(ws, app)
+    client.get("/")
+    assert app.robot.hold_idle is False
+
+
+def test_get_settings(client, app):
+    r = client.get("/api/settings")
+    assert r.status_code == 200
+    d = r.json()
+    assert d["values"]["robot"]["lip_closed"] == app.config.robot.lip_closed
+    assert "cedar" in d["voices"] and "none" not in d["gestures"] and "yes" in d["gestures"]
+
+
+def test_post_settings_applies_live_and_broadcasts(client, app):
+    with connect(client) as ws:
+        snapshot(ws)
+        r = client.post("/api/settings", json={"barge_in": {"threshold": 0.3}, "robot": {"lip_open": 7}}, headers=ORIGIN)
+        assert r.status_code == 200
+        assert ws.receive_json()["data"]["barge_in"]["threshold"] == 0.3
+    assert app.calls == [("apply", {"barge_in": {"threshold": 0.3}, "robot": {"lip_open": 7.0}})]
+
+
+@pytest.mark.parametrize(
+    "body", [{"robot": {"nope": 1}}, {"robot": {"lip_open": 99}}, {"openai": {"tts_voice": "darth"}}, [1]]
+)
+def test_post_settings_rejects_unknown_or_invalid(client, app, body):
+    r = client.post("/api/settings", json=body, headers=ORIGIN)
+    assert r.status_code == 400 and app.calls == []
+
+
+def test_post_settings_rejects_malformed_json(client, app):
+    r = client.post("/api/settings", content="{x", headers={**ORIGIN, "content-type": "application/json"})
+    assert r.status_code == 400
+
+
+@pytest.mark.parametrize("headers", [{}, {"origin": "http://evil.example"}])
+def test_api_writes_need_same_origin(client, app, headers):
+    assert client.post("/api/settings", json={"robot": {"lip_open": 7}}, headers=headers).status_code == 403
+    assert client.post("/api/settings/save", headers=headers).status_code == 403
+    assert client.put("/api/persona/dzieci", json={"text": "x"}, headers=headers).status_code == 403
+    assert app.calls == []
+
+
+def test_api_rejects_unlisted_host(app):
+    c = TestClient(create_app(app, doctor=fake_doctor))
+    assert c.get("/api/settings").status_code == 403
+
+
+def test_save_writes_config_toml_keeping_comments(client, app, tmp_path):
+    app.config.root = tmp_path
+    (tmp_path / "config.toml").write_text("[robot]\n# measured\nlip_closed = 1.5\n", encoding="utf-8")
+    app.config.robot.lip_closed = 2.0
+    assert client.post("/api/settings/save", headers=ORIGIN).status_code == 200
+    text = (tmp_path / "config.toml").read_text(encoding="utf-8")
+    assert "# measured\nlip_closed = 2.0\n" in text and "gesture_scale = 1.0" in text
+
+
+def test_persona_text_read_and_written(client, app, tmp_path):
+    import shutil
+
+    shutil.copytree(app.config.root / "personas", tmp_path / "personas")
+    app.config.root = tmp_path
+    r = client.get("/api/persona/pokaz")
+    assert r.status_code == 200 and r.json()["text"] == (tmp_path / "personas" / "pokaz.md").read_text(encoding="utf-8")
+    assert client.put("/api/persona/pokaz", json={"text": "Nowy prompt"}, headers=ORIGIN).status_code == 200
+    assert (tmp_path / "personas" / "pokaz.md").read_text(encoding="utf-8") == "Nowy prompt"
+    assert client.put("/api/persona/pokaz", json={"text": "x" * 8001}, headers=ORIGIN).status_code == 400
+    assert client.put("/api/persona/pokaz", json={"text": 5}, headers=ORIGIN).status_code == 400
+    assert client.put("/api/persona/nowa", json={"text": "x"}, headers=ORIGIN).status_code == 404
+    assert client.get("/api/persona/..%2Fconfig").status_code == 404
+    assert not (tmp_path / "personas" / "nowa.md").exists()
