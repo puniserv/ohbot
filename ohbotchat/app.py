@@ -79,6 +79,8 @@ class App:
     async def start(self) -> None:
         self.bus.bind(asyncio.get_running_loop())
         await asyncio.to_thread(self.robot.start)
+        if self._closed:  # Ctrl+C during the connect: close() already ran and must stay the last word
+            return
         self.vision.start()
         self._background = [asyncio.create_task(self._tick_loop())]
         self._ensure_fallback()
@@ -160,6 +162,10 @@ class App:
                 if self.config.conversation.mode != "ptt":
                     self._start_mic()
             self.bus.publish("sleep", asleep=self.asleep)
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
 
     async def close(self) -> None:
         if self._closed:  # called from uvicorn shutdown and again from the caller's finally

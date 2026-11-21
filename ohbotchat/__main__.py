@@ -119,6 +119,9 @@ async def _web(port: int, on_ready) -> int:
             log.exception("App start failed")
             server.should_exit = True
             return
+        if app.closed:  # Ctrl+C while the robot was connecting
+            server.should_exit = True
+            return
         url = f"http://127.0.0.1:{port}/"
         print(f"Ohbot działa na {url} (Ctrl+C = wyjście)")
         on_ready(url, server)

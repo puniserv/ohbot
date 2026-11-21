@@ -4,7 +4,7 @@ import time
 import pytest
 
 from ohbotchat.app import App
-from ohbotchat.config import load_config
+from ohbotchat.config import Config, load_config
 from ohbotchat.engine import EngineError, Reply
 from ohbotchat.events import EventBus
 from ohbotchat.listen import Segmenter
@@ -120,8 +120,8 @@ class FakeVision:
         self.running = False
 
 
-def make(engine=None, speaker=None, turns=None, mode=None, delay=None, fallback=None):
-    cfg = load_config(env={})
+def make(engine=None, speaker=None, turns=None, mode=None, delay=None, fallback=None, cfg=None):
+    cfg = cfg or load_config(env={})
     if turns is not None:
         cfg.conversation.history_turns = turns
     if mode:
@@ -1271,3 +1271,28 @@ async def test_the_filler_comes_from_the_configured_phrases(monkeypatch):
     app.config.conversation.filler_phrases = ["Moment"]
     await app.handle_utterance(LONG_ENOUGH)
     assert app.speaker.played[0] == b"MOMENT"
+
+
+def _slow_robot_start(app):
+    """Blocks app.robot.start in its thread until `gate` is set, the way a serial connect hangs."""
+    import threading
+
+    entered, gate = threading.Event(), threading.Event()
+
+    def start():
+        entered.set()
+        gate.wait(2)
+
+    app.robot.start = start
+    return entered, gate
+
+
+async def test_close_during_the_robot_connect_stops_start_from_going_on():
+    app, _ = make(cfg=Config())
+    entered, gate = _slow_robot_start(app)
+    task = asyncio.create_task(app.start())
+    assert await asyncio.to_thread(entered.wait, 2)
+    await app.close()  # Ctrl+C: uvicorn's lifespan shutdown
+    gate.set()
+    await task
+    assert app.closed and not app.vision.running and app._background == []

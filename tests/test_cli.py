@@ -201,7 +201,7 @@ class _WebApp:
     def __init__(self, config, engine=None):
         from ohbotchat.events import EventBus
 
-        self.config, self.bus, self.log = config, EventBus(), []
+        self.config, self.bus, self.log, self.closed = config, EventBus(), [], False
 
     async def start(self):
         self.log.append("start")
@@ -255,3 +255,26 @@ async def test_web_starts_the_app_and_announces_only_after_binding(monkeypatch, 
     assert await _web(port, on_ready) == 0
     assert seen == [(["start"], f"http://127.0.0.1:{port}/", True)]
     assert "działa" in capsys.readouterr().out and made[0].log[-1] == "close"
+
+
+def _free_port():
+    import socket
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+async def test_web_closed_during_start_neither_announces_nor_opens_the_page(monkeypatch, capsys):
+    import pytest
+
+    from ohbotchat.__main__ import _web
+
+    made = _web_apps(monkeypatch)
+
+    async def start_then_ctrl_c():
+        made[0].closed = True  # the lifespan shutdown ran while the robot was connecting
+
+    monkeypatch.setattr(_WebApp, "start", lambda self: start_then_ctrl_c())
+    await asyncio.wait_for(_web(_free_port(), lambda url, server: pytest.fail("opened the page")), 5)
+    assert "działa" not in capsys.readouterr().out
