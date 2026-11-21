@@ -56,9 +56,10 @@ def _partial_text(raw: str) -> str | None:
     body = re.match(r'(?:[^"\\]|\\.)*', raw[m.end() :]).group()
     for cut in range(min(6, len(body)) + 1):  # \uXXXX is the longest escape
         try:
-            return json.loads(f'"{body[: len(body) - cut]}"')
+            text = json.loads(f'"{body[: len(body) - cut]}"')
         except ValueError:
-            pass
+            continue
+        return re.sub(r"[\ud800-\udfff]", "", text)  # half of an emoji's surrogate pair cannot be encoded
     return None
 
 

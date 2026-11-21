@@ -229,3 +229,9 @@ async def test_every_persona_starts_with_the_child_safety_preamble(persona):
     await eng.respond("x", [])
     system = dict(client.calls)["chat"]["messages"][0]["content"]
     assert system.startswith(SAFETY) and "przemoc" in SAFETY and len(system) > len(SAFETY)
+
+
+async def test_truncated_reply_never_keeps_half_of_a_surrogate_pair():
+    reply = await make(FakeClient(text='{"text": "Super \\ud83d\\ude0', finish="length"))[0].respond("x", [])
+    assert reply.text == "Super"
+    reply.text.encode("utf-8")
