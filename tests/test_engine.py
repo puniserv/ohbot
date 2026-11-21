@@ -95,10 +95,20 @@ async def test_blank_transcript_is_empty():
 async def test_moderated_input_never_calls_chat():
     client = FakeClient(flagged=(True,))
     eng, _ = make(client)
+    safe = []
     with pytest.raises(EngineError) as e:
-        await eng.respond("x", [])
+        await eng.respond("x", [], lambda: safe.append(1))
     assert e.value.kind == "moderated"
     assert [n for n, _ in client.calls] == ["moderation"]
+    assert safe == []  # the transcript must not reach the screen
+
+
+async def test_on_safe_runs_once_input_passed_moderation_before_chat():
+    client = FakeClient()
+    eng, _ = make(client)
+    seen = []
+    await eng.respond("x", [], lambda: seen.append([n for n, _ in client.calls]))
+    assert seen == [["moderation"]]
 
 
 async def test_moderated_reply_never_reaches_tts():

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
@@ -21,6 +22,6 @@ class Reply:
 class Engine(Protocol):
     async def transcribe(self, pcm16k: bytes) -> str: ...
 
-    async def respond(self, heard: str, history: list[dict]) -> Reply:
-        """Publishes "stage" events while working."""
+    async def respond(self, heard: str, history: list[dict], on_safe: Callable[[], None] | None = None) -> Reply:
+        """Publishes "stage" events while working; calls `on_safe` once `heard` passed moderation."""
         ...

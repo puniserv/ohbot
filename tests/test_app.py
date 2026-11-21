@@ -23,9 +23,13 @@ class FakeEngine:
             raise self.fail
         return self.transcript
 
-    async def respond(self, heard, history):
+    async def respond(self, heard, history, on_safe=None):
         self.history_seen.append(list(history))
-        if self.fail and self.fail_stage == "respond":
+        if self.fail and self.fail_stage == "respond":  # input moderation or anything before it
+            raise self.fail
+        if on_safe:
+            on_safe()
+        if self.fail and self.fail_stage == "reply":
             raise self.fail
         return Reply(heard=heard, text="Hej!", pcm=SPEECH_PCM)
 
@@ -185,7 +189,7 @@ async def test_stop_during_thinking_cancels_request():
     gate = asyncio.Event()
 
     class Slow(FakeEngine):
-        async def respond(self, heard, history):
+        async def respond(self, heard, history, on_safe=None):
             await gate.wait()
 
     app, _ = make(Slow())
@@ -241,7 +245,7 @@ async def test_unexpected_exception_ends_in_idle_with_error_event(where):
     else:
 
         class Broken(FakeEngine):
-            async def respond(self, heard, history):
+            async def respond(self, heard, history, on_safe=None):
                 raise FileNotFoundError("persona")
 
         app, _ = make(Broken())
@@ -417,9 +421,9 @@ class Recorder(FakeEngine):
             self.transcript = self.transcripts.pop(0)
         return await super().transcribe(pcm)
 
-    async def respond(self, heard, history):
+    async def respond(self, heard, history, on_safe=None):
         self.heard.append(heard)
-        return await super().respond(heard, history)
+        return await super().respond(heard, history, on_safe)
 
 
 def hands_free(mode, engine=None, speaker=None, fail=None):
@@ -470,7 +474,7 @@ async def test_wake_without_wake_word_is_ignored_with_info():
     await settle(app)
     events = drain(q)
     assert engine.heard == [] and app.speaker.played == []
-    assert [e.data["text"] for e in events if e.type == "info"] == ["zignorowano: jak się masz"]
+    assert [e.data["text"] for e in events if e.type == "info"] == ["zignorowano (brak słowa „Ohbot”)"]
     assert states(events) == ["transcribing", "listening"]
 
 
@@ -517,7 +521,7 @@ async def test_hands_free_empty_transcript_is_ignored_silently():
     await settle(app)
     events = drain(q)
     assert app.speaker.played == [] and not [e for e in events if e.type == "error"]
-    assert [e.type for e in events if e.type == "info"] == ["info"] and app.state == "listening"
+    assert [e.data["text"] for e in events if e.type == "info"] == ["(nic nie rozpoznano)"] and app.state == "listening"
 
 
 async def test_stop_while_speaking_in_continuous_keeps_mic_listening():
@@ -664,3 +668,11 @@ async def test_wake_barge_in_opens_the_window_for_the_interruption(first):
     await mic.say(SAY[3:])
     await settle(app)
     assert engine.heard[-1] == "opowiedz dowcip"
+
+
+@pytest.mark.parametrize("stage,shown", [("respond", "(ukryto)"), ("reply", "Cześć")])
+async def test_transcript_shown_only_after_input_moderation_passed(stage, shown):
+    app, _ = make(FakeEngine(fail=EngineError("moderated"), fail_stage=stage))
+    q = app.bus.subscribe()
+    await app.handle_utterance(LONG_ENOUGH)
+    assert [e.data["text"] for e in drain(q) if e.type == "heard"] == [shown]

@@ -93,9 +93,11 @@ class ChainEngine:
         )
         return speech.content
 
-    async def respond(self, heard: str, history: list[dict]) -> Reply:
+    async def respond(self, heard: str, history: list[dict], on_safe: Callable[[], None] | None = None) -> Reply:
         c = self._cfg.openai
         await self._moderate("moderation_in", heard)
+        if on_safe:
+            on_safe()
         messages = [{"role": "system", "content": self._persona()}, *history, {"role": "user", "content": heard}]
         r = await self._stage(
             "chat",

@@ -217,7 +217,7 @@ class App:
             await self._respond(heard)
         except EngineError as e:
             if e.kind == "empty" and mode != "ptt":  # room noise must not make the robot say "nie usłyszałem"
-                self._ignore("nic nie rozpoznano")
+                self._ignore("(nic nie rozpoznano)")
             else:
                 await self._fail(e)
         except asyncio.CancelledError:
@@ -237,7 +237,7 @@ class App:
             return text
         rest = wake_match(text, self.config.wake.words)
         if rest is None:
-            self._ignore(text)
+            self._ignore("zignorowano (brak słowa „Ohbot”)")
             return None
         if rest:
             return rest
@@ -251,15 +251,27 @@ class App:
         self._act("done")
         return None
 
-    def _ignore(self, text: str) -> None:
-        self.bus.publish("info", text=f"zignorowano: {text}")
+    def _ignore(self, reason: str) -> None:
+        # never the transcript: it has not been through moderation
+        self.bus.publish("info", text=reason)
         self._act("ignore")
 
     async def _respond(self, heard: str) -> None:
         """The rest of a turn once the child's words are known as text."""
-        self.bus.publish("heard", text=heard)
+        shown = False
+
+        def show() -> None:
+            nonlocal shown
+            shown = True
+            self.bus.publish("heard", text=heard)
+
         self._act("heard")
-        reply = await self.engine.respond(heard, self.history)
+        try:
+            reply = await self.engine.respond(heard, self.history, show)
+        except EngineError as e:
+            if e.kind == "moderated" and not shown:
+                self.bus.publish("heard", text="(ukryto)")
+            raise
         self._remember(heard, reply.text)
         self.bus.publish("reply", text=reply.text)
         self._act("reply")
