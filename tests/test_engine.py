@@ -250,3 +250,33 @@ async def test_truncated_reply_never_keeps_half_of_a_surrogate_pair():
     reply = await make(FakeClient(text='{"text": "Super \\ud83d\\ude0', finish="length"))[0].respond("x", [])
     assert reply.text == "Super"
     reply.text.encode("utf-8")
+
+
+def _server_error():
+    return openai.InternalServerError("Error code: 500", response=_resp(500), body=None)
+
+
+@pytest.mark.parametrize("stage", ["chat", "tts", "moderation"])
+async def test_server_error_is_retried_once(stage):
+    client = FakeClient(fail=(stage, _server_error()))
+    go = client._go
+
+    def once(name, kw):
+        try:
+            go(name, kw)
+        finally:
+            if name == stage:
+                client.fail = None
+
+    client._go = once
+    eng, _ = make(client)
+    reply = await eng.respond("x", [])
+    assert reply.text == "Cześć!"
+    assert [n for n, _ in client.calls].count(stage) == (3 if stage == "moderation" else 2)
+
+
+async def test_server_error_twice_names_the_stage():
+    eng, _ = make(FakeClient(fail=("chat", _server_error())))
+    with pytest.raises(EngineError) as e:
+        await eng.respond("x", [])
+    assert e.value.kind == "other" and "chat" in str(e.value)

@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import re
 import wave
 from collections.abc import Awaitable, Callable
@@ -10,6 +11,8 @@ import openai
 from .config import Config
 from .engine import GESTURES, EngineError, Reply
 from .events import EventBus
+
+log = logging.getLogger(__name__)
 
 
 def _wav(pcm16k: bytes) -> bytes:
@@ -106,8 +109,15 @@ class ChainEngine:
     async def _stage(self, name: str, call: Callable[[], Awaitable], publish: bool = True):
         if publish:
             self._bus.publish("stage", name=name, status="start")
-        with _mapped_errors():
-            result = await call()
+        for attempt in (1, 2):  # an OpenAI 5xx is usually gone on the next try
+            try:
+                with _mapped_errors():
+                    result = await call()
+                break
+            except EngineError as e:
+                if attempt == 2 or not isinstance(e.__cause__, openai.InternalServerError):
+                    raise EngineError(e.kind, f"{name}: {e}") from e.__cause__
+                log.warning("%s: OpenAI server error, retrying once: %s", name, e)
         if publish:
             self._bus.publish("stage", name=name, status="done")
         return result
