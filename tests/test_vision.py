@@ -217,6 +217,37 @@ def test_thread_tracks_until_stopped_then_releases_the_camera():
     assert len(r.cams) == 2 and r.cams[1].released
 
 
+def test_a_thread_stuck_in_read_past_stop_neither_survives_wake_nor_closes_the_new_camera():
+    import threading
+
+    r = rig()
+    stuck, unstick = threading.Event(), threading.Event()
+    r.vision.start()
+    deadline = time.monotonic() + 2
+    while not r.cams and time.monotonic() < deadline:
+        time.sleep(0.01)
+    cam = r.cams[0]
+
+    def slow_read():
+        stuck.set()
+        unstick.wait()
+        return True, FRAME
+
+    cam.read = slow_read
+    assert stuck.wait(2)
+    old = r.vision._thread
+    r.vision.stop()  # gives up after its join timeout
+    r.vision.start()  # wake
+    del cam.read
+    unstick.set()
+    old.join(2)
+    time.sleep(0.3)
+    assert not old.is_alive()
+    assert not cam.released and r.vision.ok is True
+    r.vision.stop()
+    assert cam.released and r.vision.ok is None
+
+
 def test_yunet_model_is_bundled():
     assert MODEL.is_file() and 200_000 < MODEL.stat().st_size < 300_000  # a Git LFS pointer would be ~130 bytes
 

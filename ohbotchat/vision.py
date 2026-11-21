@@ -100,13 +100,15 @@ class Vision:
         self._ema: tuple[float, float] | None = None
         self._published_at = -math.inf
         self._halt = threading.Event()
+        self._lock = threading.Lock()
         self._thread: threading.Thread | None = None
         self.face: Face | None = None
         self.ok: bool | None = None  # None before the first frame and while disabled
 
     def start(self) -> None:
-        self._halt.clear()  # sleep stops and wake starts it again
-        self._thread = threading.Thread(target=self._run, name="vision", daemon=True)
+        # a fresh Event, because a thread stop() gave up on (stuck in cap.read) must not be revived by wake
+        self._halt = threading.Event()
+        self._thread = threading.Thread(target=self._run, args=(self._halt,), name="vision", daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
@@ -116,12 +118,17 @@ class Vision:
         else:
             self._release()
 
-    def _run(self) -> None:
-        while not self._halt.is_set():
-            self.step(time.monotonic())
-            self._halt.wait(1 / FPS)
-        self._release()
-        self._set_ok(None)
+    def _run(self, halt: threading.Event) -> None:
+        # the lock keeps a stuck old thread and the new one from sharing the camera at the same time
+        while not halt.is_set():
+            with self._lock:
+                if not halt.is_set():
+                    self.step(time.monotonic())
+            halt.wait(1 / FPS)
+        with self._lock:
+            if halt is self._halt:  # else a newer start() owns the camera now
+                self._release()
+                self._set_ok(None)
 
     def step(self, now: float) -> None:
         """One frame: (re)open the camera when due, detect, publish."""
