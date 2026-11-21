@@ -74,19 +74,28 @@ def _default_camera(config: Config) -> tuple[bool | None, str]:
     return True, f"kamera {config.camera.index} działa, model wczytany"
 
 
-async def run_doctor(
+async def run_doctor(config: Config, interactive: bool = False, client=None, **kw) -> list[CheckResult]:
+    """`kw`: driver, speaker, mic, camera; see _checks."""
+    if client is not None or not config.api_key:
+        return await _checks(config, interactive, client, **kw)
+    import openai
+
+    own = openai.AsyncOpenAI(api_key=config.api_key, max_retries=0)
+    try:
+        return await _checks(config, interactive, own, **kw)
+    finally:
+        await own.close()  # the in-app doctor runs again and again; each client holds a connection pool
+
+
+async def _checks(
     config: Config,
-    interactive: bool = False,
-    client=None,
+    interactive: bool,
+    client,
     driver=None,
     speaker=None,
     mic: Callable[[bool], tuple[list[str], float | None]] = _default_mic,
     camera: Callable[[Config], tuple[bool | None, str]] = _default_camera,
 ) -> list[CheckResult]:
-    if client is None and config.api_key:
-        import openai
-
-        client = openai.AsyncOpenAI(api_key=config.api_key, max_retries=0)
     c = config.openai
     api: dict = {}  # shared result of the one models.list() call behind checks 2-4
 

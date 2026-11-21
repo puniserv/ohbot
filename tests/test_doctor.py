@@ -181,3 +181,21 @@ async def test_disabled_camera_is_skipped_without_opening_it():
     opened = []
     res = await run(FakeClient(), cfg=cfg, camera_fn=opened.append)
     assert res[8].ok is None and opened == []
+
+
+async def test_doctor_closes_the_client_it_created(monkeypatch):
+    # regression: the in-app doctor made a new AsyncOpenAI per run and leaked its connection pool
+    made = []
+
+    class Client(FakeClient):
+        def __init__(self, **kw):
+            super().__init__()
+            self.closed = False
+            made.append(self)
+
+        async def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(openai, "AsyncOpenAI", Client)
+    await run(None)
+    assert len(made) == 1 and made[0].closed
