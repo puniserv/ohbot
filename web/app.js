@@ -15,6 +15,7 @@ const MAX_BUBBLES = 20;
 let ws = null;
 let colours = {};
 let held = false;
+let handsFree = false;
 let toastTimer = null;
 let barge = { enabled: false, threshold: 0.15 };
 
@@ -58,8 +59,9 @@ function setRobot(connected) {
 function applySettings(s) {
   $("mode").value = s.mode;
   $("mode-cost").hidden = s.mode === "ptt";
-  $("talk").disabled = s.mode !== "ptt"; // hands-free modes listen all the time
-  if (s.mode !== "ptt") talkStop();
+  handsFree = s.mode !== "ptt"; // the mic listens all the time, so the button only interrupts the robot
+  $("talk").textContent = handsFree ? "Przerwij" : "Przytrzymaj i mów";
+  if (handsFree) talkStop();
   if ([...$("persona").options].some((o) => o.value === s.persona)) $("persona").value = s.persona;
   if (!s.barge_in) return; // the app's own fallback to ptt sends only the mode
   barge = s.barge_in;
@@ -131,7 +133,8 @@ function connect() {
 }
 
 function talkStart() {
-  if (held || $("talk").disabled) return;
+  if (handsFree) return send({ cmd: "stop" });
+  if (held) return;
   held = true;
   $("talk").classList.add("held");
   send({ cmd: "ptt_start" });
