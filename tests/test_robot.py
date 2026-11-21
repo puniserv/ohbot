@@ -1,10 +1,12 @@
 import asyncio
 import sys
 import threading
+import time
 from types import SimpleNamespace as NS
 
 import pytest
 
+from ohbotchat import robot as robot_mod
 from ohbotchat.config import load_config
 from ohbotchat.events import EventBus
 from ohbotchat.robot import (
@@ -256,3 +258,47 @@ def test_ohbot_driver_reconnect_clears_a_write_stuck_by_unplug(monkeypatch):
     fake.writing = True
     d.connect()
     assert fake.writing is False
+
+
+def test_manual_move_is_clamped_and_pauses_idle_moves():
+    robot, driver, _ = make()
+    robot.move(HEADTURN, 12)
+    robot.move(EYETILT, -3)
+    robot.flush()
+    assert driver.calls[-2:] == [("move", HEADTURN, 10, 10), ("move", EYETILT, 0, 10)]
+    driver.calls.clear()
+    robot.tick(time.monotonic())
+    robot.flush()
+    assert driver.calls == []  # no blink or glance right after the operator moved a motor
+    robot.tick(time.monotonic() + robot_mod.MANUAL_PAUSE_S + 1)
+    robot.flush()
+    assert LIDBLINK in motors(driver)
+
+
+def test_hold_idle_pauses_blink_and_glance():
+    robot, driver, _ = make()
+    robot.hold_idle = True
+    robot.tick(1e9)
+    robot.flush()
+    assert not [c for c in driver.calls if c[0] == "move"]
+
+
+def test_manual_move_cancels_a_pending_glance_recentre():
+    robot, driver, _ = make()
+    robot.glance(now=0)
+    robot.move(HEADTURN, 2)
+    robot.hold_idle = True
+    robot.tick(10)
+    robot.flush()
+    assert [c for c in driver.calls if c[:2] == ("move", HEADTURN)][-1] == ("move", HEADTURN, 2, 10)
+
+
+def test_close_mouth_and_neutral():
+    robot, driver, cfg = make(lip_invert_bottom=True)
+    robot.close_mouth()
+    robot.flush()
+    assert driver.calls[-2:] == [("move", TOPLIP, 1.5, 10), ("move", BOTTOMLIP, 8.5, 10)]
+    driver.calls.clear()
+    robot.neutral()
+    robot.flush()
+    assert driver.calls == NEUTRAL_CALLS + [("move", TOPLIP, 1.5, 10), ("move", BOTTOMLIP, 8.5, 10)]

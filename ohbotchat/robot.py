@@ -19,6 +19,7 @@ _COLOUR_KEY = {
     State.ERROR: "error",
 }
 RETRY_S = 5.0
+MANUAL_PAUSE_S = 5.0  # a blink or glance right after a manual move would undo what the operator is looking at
 
 GESTURE_FLASH = (10, 10, 0)
 _NEUTRAL = ((HEADNOD, 5), (HEADTURN, 5), (EYETURN, 5), (EYETILT, 5), (LIDBLINK, 10))
@@ -123,6 +124,8 @@ class Robot:
         self._connected: bool | None = None
         self._next_blink = self._next_glance = self._next_retry = 0.0
         self._recentre_at: float | None = None
+        self.hold_idle = False  # set while the motion test panel is open
+        self._idle_after = 0.0
         self._connecting = False
         self._closed = False
 
@@ -182,6 +185,24 @@ class Robot:
         self._submit(self._driver.move, TOPLIP, 10 - top if r.lip_invert_top else top, 10)
         self._submit(self._driver.move, BOTTOMLIP, 10 - bottom if r.lip_invert_bottom else bottom, 10)
 
+    def pause_idle(self) -> None:
+        self._idle_after = time.monotonic() + MANUAL_PAUSE_S
+        self._recentre_at = None
+
+    def move(self, motor: int, pos: float) -> None:
+        """Raw motor position for the test panel: no lip inversion."""
+        self.pause_idle()
+        self._submit(self._driver.move, motor, min(10, max(0, pos)), 10)
+
+    def close_mouth(self) -> None:
+        self.pause_idle()
+        closed = self._cfg.robot.lip_closed
+        self.lips(closed, closed)
+
+    def neutral(self) -> None:
+        self._submit(self._gesture_step, _NEUTRAL)
+        self.close_mouth()
+
     def blink(self) -> None:
         def run() -> None:
             self._driver.move(LIDBLINK, 0, 10)
@@ -230,7 +251,7 @@ class Robot:
             self._recentre_at = None
             self._submit(self._driver.move, HEADTURN, 5, 3)
             self._submit(self._driver.move, EYETURN, 5, 5)
-        if self._state != State.IDLE:
+        if self._state != State.IDLE or self.hold_idle or now < self._idle_after:
             return
         if now >= self._next_blink:
             self._next_blink = now + self._rng.uniform(3, 6)
