@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from .audio import LIP_CLOSED, envelope, lip_positions
+from .audio import envelope, lip_positions
 from .config import Config
 from .engine import EngineError
 from .events import EventBus
@@ -311,7 +311,8 @@ class App:
         self._act("done")
 
     async def _speak(self, pcm: bytes, gesture: str | None = None) -> bool:
-        positions = lip_positions(envelope(pcm, 24000, FRAME_MS))
+        r = self.config.robot
+        positions = lip_positions(envelope(pcm, 24000, FRAME_MS), r.lip_closed, r.lip_open)
         loop = asyncio.get_running_loop()
         delay = self.config.robot.lip_delay_ms / 1000
 
@@ -339,7 +340,7 @@ class App:
             # a finished reply leaves its gesture running so the turn, and the muted mic, end with the audio
             if not played:
                 await self._end_gesture()
-            lips(LIP_CLOSED, LIP_CLOSED)
+            lips(r.lip_closed, r.lip_closed)
 
     async def _end_gesture(self) -> None:
         if self._gesture:

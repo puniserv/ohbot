@@ -134,7 +134,7 @@ async def test_full_cycle_states_and_events():
     assert [e.data["text"] for e in events if e.type in ("heard", "reply")] == ["Cześć", "Hej!"]
     app.robot.flush()
     assert any(c[:2] == ("move", TOPLIP) for c in driver.calls)
-    assert [c for c in driver.calls if c[0] == "move"][-2:] == [("move", TOPLIP, 5.0, 10), ("move", BOTTOMLIP, 5.0, 10)]  # mouth closed at the end
+    assert [c for c in driver.calls if c[0] == "move"][-2:] == [("move", TOPLIP, 1.5, 10), ("move", BOTTOMLIP, 1.5, 10)]  # mouth closed at the end
 
 
 @pytest.mark.parametrize(
@@ -273,7 +273,7 @@ async def test_lip_delay_defers_mouth_moves_including_closing():
     await asyncio.sleep(0.4)
     app.robot.flush()
     moves = [c for c in driver.calls if c[0] == "move"]
-    assert moves and moves[-2:] == [("move", TOPLIP, 5.0, 10), ("move", BOTTOMLIP, 5.0, 10)]
+    assert moves and moves[-2:] == [("move", TOPLIP, 1.5, 10), ("move", BOTTOMLIP, 1.5, 10)]
 
 
 async def test_missing_fallback_phrases_are_retried_after_a_good_turn():

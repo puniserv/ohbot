@@ -70,6 +70,9 @@ class RobotConfig:
     lip_invert_top: bool = False
     lip_invert_bottom: bool = False
     lip_delay_ms: int = 0  # lips can lead the sound by the output latency; delay them to match
+    # measured on the robot: 1 already presses the lips together, the ohbot lib's 5 leaves the mouth open
+    lip_closed: float = 1.5
+    lip_open: float = 6.5
 
 
 @dataclass

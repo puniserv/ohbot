@@ -248,8 +248,9 @@ class Robot:
             try:
                 if self._connected:
                     self._driver.eye_colour(0, 0, 0)
-                    self._driver.move(TOPLIP, 5, 10)
-                    self._driver.move(BOTTOMLIP, 5, 10)
+                    closed = self._cfg.robot.lip_closed
+                    self._driver.move(TOPLIP, closed, 10)
+                    self._driver.move(BOTTOMLIP, closed, 10)
             except Exception:
                 pass
             try:

@@ -128,7 +128,7 @@ def test_close_closes_driver():
 def test_close_switches_eyes_off_and_closes_lips_first():
     robot, driver, _ = make()
     robot.close()
-    assert driver.calls[-3:] == [("eye", 0, 0, 0), ("move", TOPLIP, 5, 10), ("move", BOTTOMLIP, 5, 10)]
+    assert driver.calls[-3:] == [("eye", 0, 0, 0), ("move", TOPLIP, 1.5, 10), ("move", BOTTOMLIP, 1.5, 10)]
     assert driver.closed
 
 
