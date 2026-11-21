@@ -7,7 +7,8 @@ from ohbotchat.config import load_config
 from ohbotchat.engine import EngineError, Reply
 from ohbotchat.events import EventBus
 from ohbotchat.listen import Segmenter
-from ohbotchat.robot import BOTTOMLIP, TOPLIP, NullDriver, Robot
+from ohbotchat import robot as robot_mod
+from ohbotchat.robot import BOTTOMLIP, HEADNOD, TOPLIP, NullDriver, Robot
 
 SPEECH_PCM = b"\x00\x20" * 24000  # 1 s of loud-ish signal at 24 kHz
 LONG_ENOUGH = b"\x00\x00" * 16000
@@ -753,3 +754,52 @@ async def test_stop_cuts_the_gesture_short():
     await asyncio.gather(task, return_exceptions=True)
     assert cancelled.is_set()
     assert app.state == "idle"
+
+
+def slow_gesture(app):
+    """Replaces robot.gesture with one that outlives the audio; returns the events of each call."""
+    calls = []
+
+    async def gesture(name):
+        cancelled = asyncio.Event()
+        calls.append(cancelled)
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    app.robot.gesture = gesture
+    return calls
+
+
+async def test_turn_ends_with_the_audio_and_stop_cancels_the_leftover_gesture():
+    app, _ = make(GestureEngine())
+    calls = slow_gesture(app)
+    await app.handle_utterance(LONG_ENOUGH)
+    await asyncio.sleep(0)  # FakeSpeaker never yields, the real one plays in a thread
+    assert app.state == "idle"  # a gesture still moving must not keep the mic muted
+    assert not calls[0].is_set()
+    app.stop()
+    await asyncio.sleep(0)
+    assert calls[0].is_set()
+
+
+async def test_next_turn_cancels_the_leftover_gesture():
+    app, _ = make(GestureEngine())
+    calls = slow_gesture(app)
+    await app.handle_utterance(LONG_ENOUGH)
+    await asyncio.sleep(0)
+    await app.handle_utterance(LONG_ENOUGH)
+    await asyncio.sleep(0)
+    assert calls[0].is_set() and not calls[1].is_set()
+
+
+async def test_close_lets_the_leftover_gesture_reach_neutral(monkeypatch):
+    monkeypatch.setattr(robot_mod, "GESTURE_STEP_S", 60)
+    app, driver = make(GestureEngine())
+    await app.handle_utterance(LONG_ENOUGH)
+    await asyncio.sleep(0)
+    await app.close()
+    assert ("move", HEADNOD, 5, robot_mod.GESTURE_SPEED) in driver.calls
+    assert driver.closed

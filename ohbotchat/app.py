@@ -39,6 +39,7 @@ class App:
         self._task: asyncio.Task | None = None
         self._abort_action: str | None = None
         self._ensure_task: asyncio.Task | None = None
+        self._gesture: asyncio.Task | None = None
         self._background: list[asyncio.Task] = []
         self._rec_timer: asyncio.TimerHandle | None = None
         self._wake_until = 0.0
@@ -67,7 +68,7 @@ class App:
             return
         self._closed = True
         self._cancel_rec_timer()
-        tasks = [*self._background, *filter(None, [self._task, self._ensure_task])]
+        tasks = [*self._background, *filter(None, [self._task, self._ensure_task, self._gesture])]
         for t in tasks:
             t.cancel()
         self.speaker.stop()
@@ -192,6 +193,8 @@ class App:
         self._abort_action = "stop" if relisten or self.config.conversation.mode != "ptt" else "cancel"
         self._wake_until = 0.0
         self.speaker.stop()
+        if self._gesture:
+            self._gesture.cancel()
         if self._busy():
             self._task.cancel()
         elif self.state == State.LISTENING and not self.mic.running:
@@ -316,17 +319,24 @@ class App:
             if i < len(positions):
                 lips(*positions[i])
 
-        moving = asyncio.create_task(self.robot.gesture(gesture)) if gesture else None
+        await self._end_gesture()
+        if gesture:
+            self._gesture = asyncio.create_task(self.robot.gesture(gesture))
+        played = False
         try:
             played = await self.speaker.play(pcm, 24000, on_frame)
-            if played and moving:  # a short "Tak!" should still get its whole nod
-                await moving
             return played
         except asyncio.CancelledError:
             self.speaker.stop()
             raise
         finally:
-            if moving:
-                moving.cancel()
-                await asyncio.gather(moving, return_exceptions=True)
+            # a finished reply leaves its gesture running so the turn, and the muted mic, end with the audio
+            if not played:
+                await self._end_gesture()
             lips(LIP_CLOSED, LIP_CLOSED)
+
+    async def _end_gesture(self) -> None:
+        if self._gesture:
+            self._gesture.cancel()
+            await asyncio.gather(self._gesture, return_exceptions=True)  # its finally queues the neutral pose
+            self._gesture = None
