@@ -30,6 +30,7 @@ from ohbotchat.vision import Face
 def make(driver=None, **robot_cfg):
     cfg = Config()  # code defaults: tuning config.toml on the robot must not break these tests
     cfg.camera.eye_gain = 4.0  # the expected eye positions in the tracking tests are worked out with this gain
+    cfg.camera.eye_range = 0.0  # the head turns all the way, as the pursuit tests below expect
     for k, v in robot_cfg.items():
         setattr(cfg.robot, k, v)
     driver = driver or NullDriver()
@@ -375,8 +376,8 @@ def test_head_pursues_the_face_capped_and_eyes_lead():
     assert first[EYETURN][1] == robot_mod.EYE_SPEED and first[EYETURN][0] - 5 > 0.4  # eyes start faster
     track(robot, 0.5, -0.25, t0=100.1)
     head = positions(driver, HEADTURN)
-    assert head[-1] == 6.5 and positions(driver, EYETURN)[-1] == 7.0
-    assert positions(driver, HEADNOD)[-1] == 4.25 and positions(driver, EYETILT)[-1] == 4.0
+    assert head[-1] == 6.5 and positions(driver, EYETURN)[-1] == 5.0  # the head covers it all, the eyes turned back
+    assert positions(driver, HEADNOD)[-1] == 4.25 and positions(driver, EYETILT)[-1] == 5.0
     assert all(0 < b - a <= cfg.robot.head_max_step + 1e-9 for a, b in zip([5.0, *head], head))
 
 
@@ -387,8 +388,8 @@ def test_settled_head_ignores_jitter_inside_the_deadband_and_stops_sending():
     driver.calls.clear()
     track(robot, 0.5, t0=110)
     assert moves(driver) == []  # settled: nothing more on the serial link
-    track(robot, 0.6, t0=120)  # head +0.3 stays inside the 0.5 deadband, eyes +0.4 follow
-    assert positions(driver, HEADTURN) == [] and positions(driver, EYETURN)[-1] == 7.4
+    track(robot, 0.6, t0=120)  # head +0.3 stays inside the 0.5 deadband, the eyes cover the 0.1 it misses
+    assert positions(driver, HEADTURN) == [] and positions(driver, EYETURN)[-1] == pytest.approx(5.4)
     track(robot, 0.75, t0=130)  # head target 7.25: off by 0.75, so it glides all the way there
     assert positions(driver, HEADTURN)[-1] == 7.25
 
@@ -410,7 +411,7 @@ async def test_a_running_gesture_owns_the_head_then_tracking_resends():
     robot.flush()
     track(robot, 0.5, t0=100.3)
     # the gesture's neutral pose moved the motors, so tracking pursues the face again
-    assert positions(driver, HEADTURN)[-1] == 6.5 and positions(driver, EYETURN)[-1] == 7.0
+    assert positions(driver, HEADTURN)[-1] == 6.5 and positions(driver, EYETURN)[-1] == 5.0
 
 
 def test_test_panel_and_manual_moves_pause_tracking():
@@ -480,3 +481,23 @@ def test_ohbot_driver_close_releases_the_serial_port(monkeypatch):
     d.connect()
     d.close()
     assert port.closed and fake.connected is False  # sleep must leave the port free for another program
+
+
+def test_a_face_inside_the_eye_range_moves_only_the_eyes():
+    robot, driver, cfg = make()
+    cfg.camera.eye_range = 0.3
+    robot.set_state(State.SPEAKING)
+    track(robot, 0.25, -0.2)
+    assert positions(driver, HEADTURN) == [] and positions(driver, HEADNOD) == []
+    assert positions(driver, EYETURN)[-1] == 6.0 and positions(driver, EYETILT)[-1] == 4.2
+
+
+def test_eyes_lead_then_the_head_takes_over_what_lies_beyond_the_eye_range():
+    robot, driver, cfg = make()
+    cfg.camera.eye_range = 0.3
+    robot.set_state(State.SPEAKING)
+    track(robot, 0.9, ticks=60)
+    eyes, head = positions(driver, EYETURN), positions(driver, HEADTURN)
+    assert head[-1] == pytest.approx(6.8)  # 5 + (0.9 - 0.3) * head_gain 3
+    assert eyes[-1] == pytest.approx(6.2)  # the eyes keep the rest: 5 + 0.3 * eye_gain 4
+    assert max(eyes) > eyes[-1]  # they shot ahead, then turned back while the head came round

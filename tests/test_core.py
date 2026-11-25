@@ -121,7 +121,7 @@ def test_camera_settings_are_editable_and_normalised():
     values = editable_settings(Config())["camera"]
     assert values == {
         "enabled": True, "index": 0, "mirror": False, "offset_x": 0.0, "offset_y": 0.0, "head_gain": 3.0,
-        "eye_gain": 10.0, "deadband": 0.5, "smoothing": 0.5, "min_score": 0.7, "lost_after_s": 3.0,
+        "eye_gain": 10.0, "eye_range": 0.3, "deadband": 0.5, "smoothing": 0.5, "min_score": 0.7, "lost_after_s": 3.0,
         "auto_greet": True, "greet_cooldown_s": 60.0,
     }
     out = validate_settings({"camera": {"index": 2, "mirror": True, "offset_x": -1, "greet_cooldown_s": 120}})

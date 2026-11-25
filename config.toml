@@ -85,6 +85,9 @@ offset_y = 0.0
 # How far head and eyes turn for a face at the edge of the picture (0-15).
 head_gain = 3.0
 eye_gain = 10.0
+# How far off centre (0-1) a face is followed by the eyes alone; the head turns only for the rest.
+# 0 = the head always turns all the way, 1 = only the eyes move.
+eye_range = 0.3
 # The head ignores target changes smaller than this (detector jitter); once it moves it glides all the way.
 deadband = 0.5
 # 0 = jumpy, 0.95 = slow and smooth.

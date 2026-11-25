@@ -294,10 +294,13 @@ class Robot:
     def _track(self, face: Face) -> None:
         c = self._cfg.camera
         self._recentre_at = None  # a glance's recentre would yank the head off the face
-        self._goal[EYETURN] = motor_target(face.x, c.eye_gain)
-        self._goal[EYETILT] = motor_target(face.y, c.eye_gain)
-        self._goal[HEADTURN] = motor_target(face.x, c.head_gain)
-        self._goal[HEADNOD] = motor_target(face.y, c.head_gain)
+        # as people do: the eyes alone cover eye_range, the head turns only for the rest, and while it turns
+        # the eyes count back what it already covers so the gaze stays on the face
+        r = c.eye_range
+        for v, head, eye in ((face.x, HEADTURN, EYETURN), (face.y, HEADNOD, EYETILT)):
+            self._goal[head] = motor_target(v - max(-r, min(r, v)), c.head_gain)
+            covered = (self._at.get(head, _REST[head]) - 5) / c.head_gain if c.head_gain else 0.0
+            self._goal[eye] = motor_target(v - covered, c.eye_gain)
         self._tracked = True
 
     def _pursue(self) -> None:
