@@ -6,7 +6,7 @@ import sys
 import threading
 import webbrowser
 
-from .config import app_root, load_config
+from .config import ConfigError, app_root, load_config
 from .doctor import CheckResult, run_doctor
 from .engine import EngineError
 from .web import DEFAULT_PORT
@@ -185,6 +185,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--window", action="store_true", help="osobne okno zamiast przeglądarki (wymaga pywebview)")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="port strony (tylko 127.0.0.1)")
     args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     try:
         if args.command == "doctor":
             return asyncio.run(_doctor())
@@ -196,6 +197,11 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print()
         return 0
+    except ConfigError as e:
+        print(e)
+        if getattr(sys, "frozen", False) and sys.stdin.isatty():
+            input("Naciśnij Enter, żeby zamknąć…")  # a double-clicked exe would close its window before anyone reads this
+        return 1
 
 
 if __name__ == "__main__":

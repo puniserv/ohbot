@@ -10,7 +10,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from .config import VOICES, editable_settings, save_settings, validate_settings, write_atomic
+from .config import MODES, VOICES, editable_settings, save_settings, validate_settings, write_atomic
 from .doctor import run_doctor
 from .engine import GESTURES, EngineError
 
@@ -19,7 +19,6 @@ log = logging.getLogger(__name__)
 HOST = "127.0.0.1"  # the UI has no auth, so it must never listen on a network interface
 DEFAULT_PORT = 8765
 ALLOWED_HOSTS = frozenset({"127.0.0.1", "localhost"})
-MODES = ("ptt", "wake", "continuous")
 MANUAL_GESTURES = tuple(g for g in GESTURES if g != "none")
 MOTORS = range(7)
 MANUAL = ("gesture", "motor", "close_mouth", "neutral", "calibrate", "say", "voice_sample")

@@ -146,6 +146,8 @@ def test_camera_settings_are_editable_and_normalised():
         {"conversation": {"greeting": "Cześć\x7f"}},  # DEL written raw makes tomllib reject the file
         {"conversation": {"greeting": "Cześć\nhej"}},
         {"conversation": {"greeting": "a\x00b"}},
+        {"conversation": {"greeting": "a\ud800"}},  # a lone surrogate cannot be written as UTF-8, so Zapisz would fail for good
+        {"robot": {"gesture_speed": float("inf")}},  # json.loads accepts Infinity; int(inf) raises OverflowError, not ValueError
         {"camera": {"index": 10}},
         {"camera": {"index": 1.5}},
         {"camera": {"offset_x": 1.1}},
@@ -192,6 +194,7 @@ def test_save_settings_replaces_only_known_lines_and_keeps_comments(tmp_path):
     import tomllib
 
     assert tomllib.loads(text)["openai"]["tts_voice"] == 'a"b#c'
+    save_settings(path, {"openai": {"tts_voice": "cedar"}})  # the escaping probe above is not a voice load_config accepts
     cfg = load_config(tmp_path, env={})
     assert cfg.robot.lip_closed == 2.0 and cfg.wake.window_s == 5.0 and cfg.robot.lip_invert_top is True
 
@@ -283,3 +286,29 @@ def test_save_settings_keeps_the_rest_of_the_file_after_a_broken_bracket_line(tm
     path.write_text('[conversation]\nfiller_phrases = ["Hmm…"  # typo\nfillers = true\n\n[robot]\nlip_closed = 1.5\n', encoding="utf-8")
     save_settings(path, {"conversation": {"filler_phrases": ["Ok"]}})
     assert path.read_text(encoding="utf-8") == '[conversation]\nfiller_phrases = ["Ok"]\nfillers = true\n\n[robot]\nlip_closed = 1.5\n'
+
+
+@pytest.mark.parametrize(
+    "toml",
+    [
+        "[openai\n",  # syntax error
+        "openai = 5\n",  # a value where a section belongs
+        '[conversation]\nhistory_turns = "ten"\n',  # would crash every turn at `2 * n`
+        "[conversation]\nfillers = 1\n",
+        "[camera]\nindex = true\n",
+        '[conversation]\nmode = "bogus"\n',
+        "[robot]\ngesture_scale = 5\n",  # outside the range the settings panel can show
+        '[openai]\ntts_voice = "darth"\n',
+    ],
+)
+def test_load_config_explains_a_broken_config_toml(tmp_path, toml):
+    from ohbotchat.config import ConfigError
+
+    (tmp_path / "config.toml").write_text(toml, encoding="utf-8")
+    with pytest.raises(ConfigError, match="config.toml"):
+        load_config(tmp_path, env={})
+
+
+def test_load_config_takes_an_int_for_a_float(tmp_path):
+    (tmp_path / "config.toml").write_text("[openai]\ntimeout_s = 15\n", encoding="utf-8")
+    assert load_config(tmp_path, env={}).openai.timeout_s == 15

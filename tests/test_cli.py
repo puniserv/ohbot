@@ -292,3 +292,15 @@ async def test_web_exits_with_1_when_the_app_fails_to_start(monkeypatch):
 
     monkeypatch.setattr(_WebApp, "start", broken)
     assert await asyncio.wait_for(_web(_free_port(), lambda url, server: pytest.fail("opened the page")), 5) == 1
+
+
+def test_broken_config_toml_prints_a_message_instead_of_a_traceback(monkeypatch, capsys):
+    from ohbotchat import __main__ as cli
+    from ohbotchat.config import ConfigError
+
+    def broken():
+        raise ConfigError("Błąd składni w config.toml: line 3")
+
+    monkeypatch.setattr(cli, "load_config", broken)
+    assert cli.main(["doctor"]) == 1
+    assert "config.toml" in capsys.readouterr().out

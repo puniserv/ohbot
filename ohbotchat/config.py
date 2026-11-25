@@ -7,6 +7,7 @@ import tempfile
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
+from typing import get_origin
 
 
 
@@ -136,18 +137,52 @@ def _read_dotenv(path: Path) -> dict[str, str]:
     return out
 
 
+MODES = ("ptt", "wake", "continuous")
+
+
+class ConfigError(ValueError):
+    """config.toml is hand-edited by the operator; the message is in Polish and shown instead of a traceback."""
+
+
+def _fits(value, declared) -> bool:
+    kind = get_origin(declared) or declared  # list[str] -> list
+    if kind is bool or isinstance(value, bool):
+        return kind is bool and isinstance(value, bool)
+    return isinstance(value, (int, float) if kind is float else kind)
+
+
 def load_config(root: Path = ROOT, env: dict[str, str] | None = None) -> Config:
-    """Environment wins over `.env`; a missing key yields `api_key=None` so `doctor` can explain it."""
+    """Environment wins over `.env`; a missing key yields `api_key=None` so `doctor` can explain it.
+
+    Raises ConfigError for a config.toml that does not parse or holds a value of the wrong type or out of range.
+    """
     env = os.environ if env is None else env
     cfg = Config(root=root)
     path = root / "config.toml"
-    raw = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    try:
+        raw = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as e:
+        raise ConfigError(f"Błąd składni w config.toml: {e}") from None
     for f in fields(cfg):
         section = getattr(cfg, f.name)
         if f.name in raw and hasattr(section, "__dataclass_fields__"):
+            if not isinstance(raw[f.name], dict):
+                raise ConfigError(f"config.toml: „{f.name}” musi być sekcją [{f.name}], a nie pojedynczą wartością")
             for k, v in raw[f.name].items():
                 if hasattr(section, k):
+                    if not _fits(v, section.__dataclass_fields__[k].type):
+                        raise ConfigError(
+                            f"config.toml: [{f.name}] {k} = {v!r} ma zły typ (wartość domyślna: {getattr(section, k)!r})"
+                        )
+                    # keys the UI can edit get the UI's range check, or "Ustawienia" would show a value it cannot hold
+                    if check := EDITABLE.get(f.name, {}).get(k):
+                        try:
+                            v = check(v)
+                        except ValueError as e:
+                            raise ConfigError(f"config.toml: [{f.name}] {k} = {v!r} – niedozwolona wartość ({e})") from None
                     setattr(section, k, v)
+    if cfg.conversation.mode not in MODES:
+        raise ConfigError(f"config.toml: [conversation] mode = {cfg.conversation.mode!r}; dozwolone: {', '.join(MODES)}")
     key = env.get("OPENAI_API_KEY") or _read_dotenv(root / ".env").get("OPENAI_API_KEY")
     cfg.api_key = key or None
     return cfg
@@ -158,7 +193,8 @@ VOICES = ("alloy", "ash", "ballad", "cedar", "coral", "echo", "fable", "marin", 
 
 def _number(kind: type, lo: float, hi: float):
     def check(v):
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or (kind is int and v != int(v)) or not lo <= v <= hi:
+        # range first: int() of the Infinity that json.loads accepts raises OverflowError
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not lo <= v <= hi or (kind is int and v != int(v)):
             raise ValueError(f"expected {kind.__name__} in {lo}..{hi}")
         return kind(v)
 
@@ -171,7 +207,7 @@ def _flag(v):
     return v
 
 
-_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
+_CONTROL = re.compile(r"[\x00-\x1f\x7f\ud800-\udfff]")  # lone surrogates: they cannot be encoded for the file or the API
 
 
 def _text(max_len: int):
