@@ -38,7 +38,15 @@ class FakeApp:
         self.vision = type("V", (), {"ok": True})()
         self.closed = 0
         self.mic_error = None
+        self.keys = []
+        self.key_error = None
         self.asleep = False
+
+    async def set_api_key(self, key):
+        if self.key_error:
+            raise self.key_error
+        self.keys.append(key)
+        self.config.api_key = key
 
     async def set_asleep(self, value):
         self.calls.append(f"asleep:{value}")
@@ -606,3 +614,22 @@ async def test_mjpeg_sends_each_new_frame_once_and_counts_the_viewer():
 def test_camera_stream_refuses_a_foreign_host():
     client = TestClient(create_app(FakeApp()))
     assert client.get("/camera.mjpg", headers={"host": "evil.example"}).status_code == 403
+
+
+def test_api_key_is_handed_to_the_app_and_never_echoed(client, app):
+    key = "sk-" + "z" * 40
+    r = client.post("/api/key", json={"key": key}, headers=ORIGIN)
+    assert r.status_code == 200 and key not in r.text and app.keys == [key]
+    assert r.json()["hint"] == "…zzzz"
+
+
+def test_a_rejected_api_key_is_a_400_with_the_reason(client, app):
+    app.key_error = ValueError("OpenAI odrzuciło ten klucz.")
+    r = client.post("/api/key", json={"key": "sk-" + "z" * 40}, headers=ORIGIN)
+    assert r.status_code == 400 and "odrzuciło" in r.text
+
+
+@pytest.mark.parametrize("headers", [{}, {"origin": "http://evil.example"}])
+def test_api_key_needs_same_origin(client, app, headers):
+    assert client.post("/api/key", json={"key": "sk-" + "z" * 40}, headers=headers).status_code == 403
+    assert app.keys == []

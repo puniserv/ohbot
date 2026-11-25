@@ -5,7 +5,7 @@ import random
 import time
 
 from .audio import envelope, lip_positions
-from .config import Config, validate_settings
+from .config import Config, save_api_key, validate_api_key, validate_settings
 from .engine import EngineError
 from .events import EventBus
 from .fallback import PHRASES, Fallback
@@ -75,6 +75,28 @@ class App:
         # retries would stretch the wait before the "no network" phrase to minutes
         client = openai.AsyncOpenAI(api_key=self.config.api_key, max_retries=0)
         return ChainEngine(client, self.config, self.bus)
+
+    async def set_api_key(self, key: str) -> None:
+        """Checks the key with OpenAI, writes it to .env and switches to it; ValueError says why a key was refused."""
+        key = validate_api_key(key)
+        await self._check_key(key)
+        await asyncio.to_thread(save_api_key, self.config.root, key)
+        self.config.api_key = key
+        self.engine = self._default_engine()
+        self._ensure_fallback()  # the fillers could not be recorded without a key
+
+    async def _check_key(self, key: str) -> None:
+        import openai
+
+        client = openai.AsyncOpenAI(api_key=key, max_retries=0)
+        try:
+            await client.models.list(timeout=self.config.openai.timeout_s)
+        except openai.AuthenticationError:
+            raise ValueError("OpenAI odrzuciło ten klucz.") from None
+        except Exception as e:  # offline: keep the key, the turn will say what is wrong
+            log.warning("API key not verified: %s", type(e).__name__)
+        finally:
+            await client.close()
 
     async def start(self) -> None:
         self.bus.bind(asyncio.get_running_loop())

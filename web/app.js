@@ -6,7 +6,7 @@ const ERRORS = {
   quota: "Brak środków na koncie OpenAI – doładuj konto",
   empty: "Nie usłyszałem – przytrzymaj przycisk dłużej",
   moderated: "Porozmawiajmy o czymś innym",
-  nokey: "Brak klucza API – dodaj OPENAI_API_KEY do pliku .env",
+  nokey: "Brak klucza API – wpisz go w Ustawienia → Klucz OpenAI",
   auth: "Klucz API odrzucony – sprawdź plik .env",
   network: "Brak internetu – robot nie może się połączyć",
 };
@@ -152,6 +152,7 @@ const handlers = {
   level: (d) => ($("meter-bar").style.width = Math.min(100, d.level * 100) + "%"),
   settings: applySettings,
   doctor: (d) => showDoctor(d.results),
+  key: (d) => ($("nokey").hidden = d.has_key),
 };
 
 function connect() {
@@ -271,6 +272,7 @@ async function openSettings() {
     else el.value = Array.isArray(v) ? v.join("\n") : v;
     showValue(el);
   }
+  showKeyHint(d.key_hint);
   promptPersona = $("persona").value;
   $("prompt-persona").textContent = "(" + promptPersona + ")";
   promptSaved = (await api("GET", "/api/persona/" + encodeURIComponent(promptPersona))).text;
@@ -292,6 +294,25 @@ for (const el of fields()) {
     api("POST", "/api/settings", { [section]: { [key]: fieldValue(el) } }).catch(fail);
   });
 }
+
+function showKeyHint(hint) {
+  $("api-key-hint").textContent = hint ? "Zapisany klucz kończy się na " + hint : "Brak zapisanego klucza.";
+}
+
+$("api-key-save").onclick = async () => {
+  const button = $("api-key-save");
+  button.disabled = true;
+  try {
+    const d = await api("POST", "/api/key", { key: $("api-key").value });
+    $("api-key").value = "";
+    showKeyHint(d.hint);
+    toast("Klucz zapisany");
+  } catch (e) {
+    fail(e);
+  } finally {
+    button.disabled = false;
+  }
+};
 
 $("settings").onclick = () => openSettings().catch(fail);
 $("settings-close").onclick = () => ($("settings-panel").hidden = true);

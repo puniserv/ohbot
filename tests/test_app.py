@@ -1349,3 +1349,31 @@ async def test_sleep_during_the_robot_connect_keeps_camera_and_mic_off(monkeypat
     assert app.asleep and not app.vision.running and not app.mic.running
     assert app._background  # the tick loop must exist, or a later wake has nothing driving the robot
     await app.close()
+
+
+async def test_a_key_from_the_browser_is_checked_saved_and_used_at_once(tmp_path, monkeypatch):
+    app, _ = make(cfg=Config(root=tmp_path))
+    checked, new_engine = [], FakeEngine()
+    async def check(key):
+        checked.append(key)
+    monkeypatch.setattr(app, "_check_key", check)
+    monkeypatch.setattr(app, "_default_engine", lambda: new_engine)
+    key = "sk-" + "k" * 40
+    await app.set_api_key(key)
+    assert checked == [key] and app.engine is new_engine and app.config.api_key == key
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == f"OPENAI_API_KEY={key}\n"
+
+
+async def test_a_rejected_key_changes_nothing(tmp_path, monkeypatch):
+    import pytest
+
+    app, _ = make(cfg=Config(root=tmp_path))
+    old = app.engine
+    async def check(key):
+        raise ValueError("OpenAI odrzuciło ten klucz.")
+    monkeypatch.setattr(app, "_check_key", check)
+    with pytest.raises(ValueError):
+        await app.set_api_key("sk-" + "k" * 40)
+    with pytest.raises(ValueError):
+        await app.set_api_key("not a key")
+    assert app.engine is old and not (tmp_path / ".env").exists()

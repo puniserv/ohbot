@@ -365,6 +365,33 @@ def save_settings(path: Path, values: dict[str, dict]) -> None:
     write_atomic(path, "\n".join(lines) + "\n")
 
 
+_API_KEY = re.compile(r"sk-[A-Za-z0-9_-]{20,300}")
+
+
+def validate_api_key(key: str) -> str:
+    """The key goes into a `KEY=value` line of .env, so anything but a plain sk-… token is refused."""
+    key = key.strip() if isinstance(key, str) else ""
+    if not _API_KEY.fullmatch(key):
+        raise ValueError("To nie wygląda na klucz OpenAI (zaczyna się od sk-).")
+    return key
+
+
+def save_api_key(root: Path, key: str) -> None:
+    key = validate_api_key(key)
+    path = root / ".env"
+    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    line = f"OPENAI_API_KEY={key}"
+    for i, old in enumerate(lines):
+        if old.strip().partition("=")[0].strip() == "OPENAI_API_KEY":
+            lines[i] = line
+            break
+    else:
+        lines.append(line)
+    write_atomic(path, "\n".join(lines) + "\n")
+    if os.name == "posix":
+        os.chmod(path, 0o600)  # a secret; Windows keeps the folder's ACL
+
+
 def write_atomic(path: Path, text: str) -> None:
     """A crash or full disk mid-write must leave the old file, not half of the new one."""
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")

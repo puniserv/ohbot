@@ -8,7 +8,7 @@
 </head>
 <body>
 <div id="offline" hidden>Brak połączenia z aplikacją</div>
-<div id="nokey" hidden>Brak klucza OPENAI_API_KEY. Uzupełnij plik .env i uruchom aplikację ponownie.</div>
+<div id="nokey" hidden>Brak klucza OpenAI. Wpisz go w Ustawienia → Klucz OpenAI.</div>
 <div id="toast" hidden></div>
 
 <main>
@@ -41,6 +41,11 @@
 <div id="settings-panel" class="panel" hidden>
   <div class="panel-head"><h2>Ustawienia</h2><span><button id="settings-save">Zapisz</button> <button id="settings-close">Zamknij</button></span></div>
   <p class="note">Zmiany działają od razu. „Zapisz” zapisuje je w config.toml i w pliku osobowości.</p>
+  <fieldset><legend>Klucz OpenAI</legend>
+    <p class="note">Klucz z platform.openai.com. Zostanie sprawdzony i zapisany w pliku .env obok aplikacji; strona nigdy go nie pokazuje.</p>
+    <p class="row"><input type="password" id="api-key" autocomplete="off" spellcheck="false" placeholder="sk-…"> <button id="api-key-save">Zapisz klucz</button></p>
+    <span id="api-key-hint" class="note"></span>
+  </fieldset>
   <fieldset><legend>Usta</legend>
     <label>Zamknięte <input type="range" data-key="robot.lip_closed" min="0" max="10" step="0.1"><output></output></label>
     <label>Otwarte <input type="range" data-key="robot.lip_open" min="0" max="10" step="0.1"><output></output></label>

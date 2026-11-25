@@ -312,3 +312,34 @@ def test_load_config_explains_a_broken_config_toml(tmp_path, toml):
 def test_load_config_takes_an_int_for_a_float(tmp_path):
     (tmp_path / "config.toml").write_text("[openai]\ntimeout_s = 15\n", encoding="utf-8")
     assert load_config(tmp_path, env={}).openai.timeout_s == 15
+
+
+def test_save_api_key_replaces_only_the_key_line_and_keeps_the_rest(tmp_path):
+    from ohbotchat.config import save_api_key
+
+    env = tmp_path / ".env"
+    env.write_text("# moje\nOPENAI_API_KEY=sk-old\nOTHER=1\n", encoding="utf-8")
+    save_api_key(tmp_path, "sk-" + "a" * 40)
+    assert env.read_text(encoding="utf-8") == "# moje\nOPENAI_API_KEY=sk-" + "a" * 40 + "\nOTHER=1\n"
+    assert load_config(tmp_path, env={}).api_key == "sk-" + "a" * 40
+
+
+def test_save_api_key_creates_an_owner_only_env(tmp_path):
+    import os
+    import stat
+
+    from ohbotchat.config import save_api_key
+
+    save_api_key(tmp_path, "sk-proj-" + "B_c-" * 10)
+    assert load_config(tmp_path, env={}).api_key == "sk-proj-" + "B_c-" * 10
+    if os.name == "posix":
+        assert stat.S_IMODE((tmp_path / ".env").stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize("bad", ["", "sk-short", "nokey" + "a" * 40, "sk-" + "a" * 40 + "\nEVIL=1", "sk-" + "a" * 40 + " x", "sk-" + "ą" * 40, "sk-" + "a" * 400])
+def test_save_api_key_rejects_what_is_not_a_key(tmp_path, bad):
+    from ohbotchat.config import save_api_key
+
+    with pytest.raises(ValueError):
+        save_api_key(tmp_path, bad)
+    assert not (tmp_path / ".env").exists()

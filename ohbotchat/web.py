@@ -286,7 +286,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
 
     @api.get("/api/settings", dependencies=[Depends(guard)])
     def get_settings() -> dict:
-        return {"values": editable_settings(cfg), "voices": VOICES, "gestures": MANUAL_GESTURES}
+        return {"values": editable_settings(cfg), "voices": VOICES, "gestures": MANUAL_GESTURES, "key_hint": key_hint()}
 
     @api.post("/api/settings", dependencies=[Depends(guard)])
     async def post_settings(request: Request) -> dict:
@@ -302,6 +302,19 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
         app.apply_settings(values)
         app.bus.publish("settings", **settings())
         return {"values": editable_settings(cfg)}
+
+    @api.post("/api/key", dependencies=[Depends(guard)])
+    async def post_key(request: Request) -> dict:
+        body = await _json(request)
+        try:
+            await app.set_api_key(body.get("key") if isinstance(body, dict) else None)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        app.bus.publish("key", has_key=True)
+        return {"ok": True, "hint": key_hint()}
+
+    def key_hint() -> str | None:
+        return "…" + cfg.api_key[-4:] if cfg.api_key else None  # enough to tell keys apart, never the key itself
 
     @api.post("/api/settings/save", dependencies=[Depends(guard)])
     async def save() -> dict:  # async runs it on the event loop, so two saves cannot interleave
