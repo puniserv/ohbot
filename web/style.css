@@ -16,6 +16,7 @@ aside h2 { margin: 4px 0 0; font-size: 24px; }
 #robot-dot { flex: none; width: 64px; height: 64px; border-radius: 50%; background: rgb(0, 0, 76); border: 4px solid var(--fg); transition: background .2s; }
 #robot-state { color: var(--dim); }
 #info, .note { font-size: 18px; color: var(--dim); }
+a { color: var(--accent); }
 #info { min-height: 1.4em; }
 #talk:disabled { opacity: .4; cursor: default; }
 #pipeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
