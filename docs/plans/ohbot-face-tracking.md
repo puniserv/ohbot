@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11, uv, `opencv-python-headless` (`cv2.FaceDetectorYN` + YuNet `face_detection_yunet_2023mar.onnx`), numpy, pytest + pytest-asyncio. Tests use a fake camera and a fake detector; no test opens a camera or the serial port.
 
-Spec: `docs/superpowers/specs/2026-11-21-ohbot-face-tracking-design.md`. Branch `feat/ohbot-chat`, local only, never push.
+Spec: `docs/specs/ohbot-face-tracking/spec.md`. Branch `feat/ohbot-chat`, local only, never push.
 
 **Tick rate:** the robot loop runs at 0.25 s today. Eyes that follow a face at 4 updates per second lag behind the camera's 10 fps, so the loop moves to `TICK_S = 0.1` (Task 5). Blink, glance and reconnect timing use timestamps and do not change. The ≥ 0.2 change threshold and the head deadband keep the serial link quiet.
 

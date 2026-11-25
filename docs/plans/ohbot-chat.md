@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.11, uv, `openai`, `sounddevice` + `numpy` (audio I/O), `webrtcvad-wheels` (VAD), `fastapi` + `uvicorn` (UI, WebSocket), `ohbot` (PyPI, motors/eyes), `pytest` + `pytest-asyncio`.
 
-Spec: `docs/superpowers/specs/2026-11-21-ohbot-chat-design.md`. Deviation from spec layout: code lives in package `ohbotchat/` (not `core/`) so `uv run ohbotchat` and `python -m ohbotchat` work.
+Spec: `docs/specs/ohbot-chat/spec.md`. Deviation from spec layout: code lives in package `ohbotchat/` (not `core/`) so `uv run ohbotchat` and `python -m ohbotchat` work.
 
 ---
 
