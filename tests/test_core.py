@@ -113,6 +113,7 @@ def test_validate_settings_accepts_known_keys_and_normalises():
     out = validate_settings({"robot": {"lip_closed": 2, "lip_invert_top": True}, "openai": {"tts_voice": "ash"}})
     assert out == {"robot": {"lip_closed": 2.0, "lip_invert_top": True}, "openai": {"tts_voice": "ash"}}
     assert isinstance(out["robot"]["lip_closed"], float)
+    assert validate_settings({"colours": {"error": [10, 2.0, 0]}}) == {"colours": {"error": [10, 2, 0]}}
 
 
 def test_camera_settings_are_editable_and_normalised():
@@ -156,6 +157,11 @@ def test_camera_settings_are_editable_and_normalised():
         {"camera": {"lost_after_s": 0.4}},
         {"camera": {"greet_cooldown_s": 5}},
         {"camera": {"enabled": "yes"}},
+        {"colours": {"idle": [0, 0]}},
+        {"colours": {"idle": [0, 0, 11]}},
+        {"colours": {"idle": [0, 0, 1.5]}},
+        {"colours": {"idle": [0, 0, True]}},
+        {"colours": {"idle": "#0000ff"}},
         {"robot": [1]},
         [1],
     ],
