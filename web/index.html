@@ -14,10 +14,13 @@
 <main>
   <section id="subtitles" aria-live="polite"></section>
   <aside>
+    <div id="robot-row">
+      <div id="robot-dot" title="Stan robota"></div>
+      <div><div id="robot-state"></div><div id="info"></div></div>
+    </div>
+    <h2>Co widzi robot</h2>
+    <div id="face-box" title="Gdzie robot widzi twarz"><img id="camera-view" alt=""><div id="face-dot"></div><span id="face-error" hidden>Kamera niedostępna</span></div>
     <h2>Jak myśli robot</h2>
-    <div id="robot-dot" title="Stan robota"></div>
-    <div id="robot-state"></div>
-    <div id="info"></div>
     <ol id="pipeline">
       <li data-stage="mic"><b>Mikrofon</b><span>Łapie Twój głos.</span></li>
       <li data-stage="stt"><b>Tekst</b><span>Zamienia mowę na napisy.</span></li>
@@ -27,8 +30,6 @@
       <li data-stage="tts"><b>Głos</b><span>Zamienia tekst na mowę.</span></li>
       <li data-stage="robot"><b>Robot</b><span>Mówi i rusza ustami.</span></li>
     </ol>
-    <h2>Co widzi robot</h2>
-    <div id="face-box" title="Gdzie robot widzi twarz"><img id="camera-view" alt=""><div id="face-dot"></div><span id="face-error" hidden>Kamera niedostępna</span></div>
   </aside>
 </main>
 

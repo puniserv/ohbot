@@ -10,17 +10,18 @@ main { flex: 1; display: flex; min-height: 0; }
 .bubble small { display: block; font-size: 22px; color: var(--dim); }
 .bubble.child { align-self: flex-start; background: #1d4ed8; }
 .bubble.robot { align-self: flex-end; background: #166534; }
-aside { flex: 1; padding: 24px; border-left: 2px solid var(--panel); overflow-y: auto; }
-aside h2 { margin: 0 0 12px; }
-#robot-dot { width: 90px; height: 90px; border-radius: 50%; background: rgb(0, 0, 76); border: 4px solid var(--fg); transition: background .2s; }
-#robot-state { margin: 8px 0 16px; color: var(--dim); }
+aside { flex: 1; padding: 16px 24px; border-left: 2px solid var(--panel); overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+aside h2 { margin: 4px 0 0; font-size: 24px; }
+#robot-row { display: flex; align-items: center; gap: 16px; }
+#robot-dot { flex: none; width: 64px; height: 64px; border-radius: 50%; background: rgb(0, 0, 76); border: 4px solid var(--fg); transition: background .2s; }
+#robot-state { color: var(--dim); }
 #info, .note { font-size: 18px; color: var(--dim); }
-#info { min-height: 1.4em; margin-bottom: 12px; }
+#info { min-height: 1.4em; }
 #talk:disabled { opacity: .4; cursor: default; }
-#pipeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-#pipeline li { padding: 8px 16px; border-radius: 12px; border: 3px solid var(--panel); opacity: .55; }
-#pipeline li b { display: block; font-size: 30px; }
-#pipeline li span { font-size: 20px; color: var(--dim); }
+#pipeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+#pipeline li { display: flex; align-items: baseline; gap: 12px; padding: 4px 12px; border-radius: 10px; border: 3px solid var(--panel); opacity: .55; }
+#pipeline li b { flex: none; font-size: 22px; }
+#pipeline li span { font-size: 17px; color: var(--dim); }
 #pipeline li.active { opacity: 1; border-color: var(--accent); background: #3a2f00; }
 footer { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 24px; background: var(--panel); border-top: 2px solid var(--dim); }
 footer label { font-size: 20px; display: flex; align-items: center; gap: 8px; }
@@ -48,7 +49,7 @@ footer label { font-size: 20px; display: flex; align-items: center; gap: 8px; }
 .panel input[type=text] { flex: 1; }
 .panel .row { display: flex; gap: 12px; }
 #gestures, #motors { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 12px 0; }
-#face-box { position: relative; width: 100%; max-width: 400px; aspect-ratio: 4 / 3; border: 2px solid var(--dim); border-radius: 12px; background: var(--bg); }
+#face-box { flex: 1 1 0; min-height: 120px; max-height: 360px; align-self: flex-start; max-width: 100%; aspect-ratio: 4 / 3; position: relative; border: 2px solid var(--dim); border-radius: 12px; background: var(--bg); }
 #camera-view { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
 #face-dot { position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%; background: var(--dim); opacity: .3; }
 #face-dot.seen { background: var(--accent); opacity: 1; }
