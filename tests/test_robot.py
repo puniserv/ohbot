@@ -56,9 +56,9 @@ def test_state_colours_from_config():
     ]
 
 
-def test_blink_only_when_idle():
+def test_blink_when_idle_or_listening_only():
     robot, driver, _ = make()
-    robot.set_state(State.LISTENING)
+    robot.set_state(State.THINKING)
     robot.tick(1e9)
     robot.flush()
     assert LIDBLINK not in motors(driver)
@@ -66,6 +66,15 @@ def test_blink_only_when_idle():
     robot.tick(2e9)
     robot.flush()
     assert LIDBLINK in motors(driver)
+
+
+def test_listening_blinks_but_does_not_glance():
+    robot, driver, _ = make()
+    robot.set_state(State.LISTENING)  # where wake and continuous modes rest
+    robot.tick(1e9)
+    robot.flush()
+    assert LIDBLINK in motors(driver)
+    assert robot._recentre_at is None and not robot._goal
 
 
 def test_glance_glides_away_and_back():

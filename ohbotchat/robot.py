@@ -334,12 +334,14 @@ class Robot:
             for motor in (HEADTURN, HEADNOD, EYETURN, EYETILT):
                 self._goal[motor] = 5
         self._pursue()
-        if self._state != State.IDLE:
+        # hands-free modes rest in LISTENING, so blinking only in IDLE left the robot a statue there
+        if self._state not in (State.IDLE, State.LISTENING):
             return
         if now >= self._next_blink:
             self._next_blink = now + self._rng.uniform(3, 6)
             self.blink()
-        if lost and now >= self._next_glance:
+        # no glance while listening: with the camera off it would turn away from the child who is talking
+        if self._state == State.IDLE and lost and now >= self._next_glance:
             self._next_glance = now + self._rng.uniform(5, 10)
             self.glance(now)
 
