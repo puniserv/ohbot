@@ -67,6 +67,7 @@ function setSleep(value) {
   $("sleep").textContent = asleep ? "Obudź" : "Uśpij robota";
   $("sleep").disabled = false;
   $("talk").disabled = asleep;
+  $("camera-view").hidden = asleep; // the camera is off, the last frame would be stale
   setRobot(robotConnected);
 }
 
@@ -124,6 +125,7 @@ const handlers = {
     setRobot(d.robot);
     setSleep(d.asleep);
     setCamera(d.camera);
+    setPreview(true); // a (re)connect may follow a server restart, which ended the old stream
     $("nokey").hidden = d.has_key;
     if (d.mic_error) toast(d.mic_error);
   },
@@ -274,13 +276,14 @@ async function openSettings() {
   promptSaved = (await api("GET", "/api/persona/" + encodeURIComponent(promptPersona))).text;
   $("prompt").value = promptSaved;
   $("settings-panel").hidden = false;
-  $("camera-view").src = "/camera.mjpg";
 }
 
-function closeSettings() {
-  $("settings-panel").hidden = true;
-  $("camera-view").removeAttribute("src"); // ends the stream, so the server stops encoding frames
+function setPreview(restart = false) {
+  const view = $("camera-view");
+  if (document.hidden || restart) view.removeAttribute("src"); // a hidden tab costs the server no JPEG work
+  if (!document.hidden && !view.getAttribute("src")) view.src = "/camera.mjpg";
 }
+document.addEventListener("visibilitychange", () => setPreview());
 
 for (const el of fields()) {
   el.addEventListener("input", () => showValue(el));
@@ -291,7 +294,7 @@ for (const el of fields()) {
 }
 
 $("settings").onclick = () => openSettings().catch(fail);
-$("settings-close").onclick = closeSettings;
+$("settings-close").onclick = () => ($("settings-panel").hidden = true);
 $("voice-sample").onclick = () => send({ cmd: "voice_sample", voice: $("voice").value });
 $("settings-save").onclick = async () => {
   try {

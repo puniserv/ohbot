@@ -48,7 +48,7 @@ footer label { font-size: 20px; display: flex; align-items: center; gap: 8px; }
 .panel input[type=text] { flex: 1; }
 .panel .row { display: flex; gap: 12px; }
 #gestures, #motors { display: flex; flex-wrap: wrap; gap: 12px 24px; margin: 12px 0; }
-#face-box { position: relative; width: 240px; height: 180px; border: 2px solid var(--dim); border-radius: 12px; background: var(--bg); }
+#face-box { position: relative; width: 100%; max-width: 400px; aspect-ratio: 4 / 3; border: 2px solid var(--dim); border-radius: 12px; background: var(--bg); }
 #camera-view { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
 #face-dot { position: absolute; left: 50%; top: 50%; width: 24px; height: 24px; margin: -12px 0 0 -12px; border-radius: 50%; background: var(--dim); opacity: .3; }
 #face-dot.seen { background: var(--accent); opacity: 1; }

@@ -27,6 +27,8 @@
       <li data-stage="tts"><b>Głos</b><span>Zamienia tekst na mowę.</span></li>
       <li data-stage="robot"><b>Robot</b><span>Mówi i rusza ustami.</span></li>
     </ol>
+    <h2>Co widzi robot</h2>
+    <div id="face-box" title="Gdzie robot widzi twarz"><img id="camera-view" alt=""><div id="face-dot"></div><span id="face-error" hidden>Kamera niedostępna</span></div>
   </aside>
 </main>
 
@@ -73,8 +75,7 @@
       <textarea data-key="conversation.filler_phrases" data-list rows="4"></textarea></label>
   </fieldset>
   <fieldset><legend>Kamera</legend>
-    <p class="note">Obraz nie opuszcza aplikacji: nie jest zapisywany ani wysyłany. Robot zna tylko położenie twarzy.</p>
-    <div id="face-box" title="Gdzie robot widzi twarz"><img id="camera-view" alt=""><div id="face-dot"></div><span id="face-error" hidden>Kamera niedostępna</span></div>
+    <p class="note">Obraz nie opuszcza komputera: nie jest zapisywany ani wysyłany. Robot zna tylko położenie twarzy.</p>
     <label><input type="checkbox" data-key="camera.enabled"> Śledzenie twarzy</label>
     <label>Numer kamery <input type="number" data-key="camera.index" min="0" max="9" step="1"></label>
     <label><input type="checkbox" data-key="camera.mirror"> Odbicie lustrzane</label>
