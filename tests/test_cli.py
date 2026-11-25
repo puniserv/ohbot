@@ -304,3 +304,16 @@ def test_broken_config_toml_prints_a_message_instead_of_a_traceback(monkeypatch,
     monkeypatch.setattr(cli, "load_config", broken)
     assert cli.main(["doctor"]) == 1
     assert "config.toml" in capsys.readouterr().out
+
+
+def test_a_cp1250_console_does_not_crash_on_the_check_marks(monkeypatch):
+    # regression: `ohbot-chat.exe doctor > log.txt` on Windows died with UnicodeEncodeError on "✘"
+    import io
+
+    import pytest
+
+    out = io.TextIOWrapper(io.BytesIO(), encoding="cp1250")
+    monkeypatch.setattr("sys.stdout", out)
+    with pytest.raises(SystemExit):
+        main(["--bogus"])
+    print("✘ ✔")

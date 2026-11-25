@@ -177,6 +177,9 @@ def _window(port: int) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):  # redirected output on Windows is cp1250 and has no ✔/✘
+            stream.reconfigure(errors="replace")
     if getattr(sys, "frozen", False):
         os.chdir(app_root())  # the ohbot library writes ohbotData/ into the cwd
     parser = argparse.ArgumentParser(prog="ohbotchat", description="Rozmowa głosowa z robotem Ohbot")
