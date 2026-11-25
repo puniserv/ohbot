@@ -176,6 +176,18 @@ def _window(port: int) -> int:
     return 0
 
 
+def _already_running(port: int) -> bool:
+    """An Ohbot answers on the port: it holds the robot's serial port, so a second app could not reach the robot."""
+    import json
+    import urllib.request
+
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/api/settings", timeout=1) as r:
+            return "voices" in json.load(r)
+    except Exception:
+        return False
+
+
 def main(argv: list[str] | None = None) -> int:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):  # redirected output on Windows is cp1250 and has no ✔/✘
@@ -189,6 +201,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="port strony (tylko 127.0.0.1)")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if _already_running(args.port):
+        url = f"http://127.0.0.1:{args.port}/"
+        if args.command == "doctor" or args.no_web:
+            print(f"Ohbot już działa na {url} i trzyma port robota. Zamknij jego okno konsoli i spróbuj ponownie.")
+            return 1
+        print(f"Ohbot już działa – otwieram {url}")
+        webbrowser.open(url)
+        return 0
     try:
         if args.command == "doctor":
             return asyncio.run(_doctor())

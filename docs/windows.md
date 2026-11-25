@@ -70,6 +70,7 @@ Here `.env` goes in the repo root.
 - The `ohbot` library scans every COM port and uses the first one that answers. There is no port setting.
 - Open Device Manager, then "Ports (COM & LPT)". The robot should appear as a USB serial device when plugged in and powered. If it shows a warning icon, the USB serial driver is missing. Install the one from the Ohbot software package.
 - Only one program can hold the port. Close the Ohbot desktop app, Arduino IDE, or another `ohbot-chat.exe`.
+- Closing the browser does not stop `ohbot-chat.exe`; close its console window. Starting it again while it runs only opens the page of the running one.
 - Use a data USB cable, not a charge-only one, and turn on the robot's power before starting the app. The app retries the connection every 5 s, so you can plug it in later.
 
 **Microphone silent or missing**

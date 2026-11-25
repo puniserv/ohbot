@@ -317,3 +317,55 @@ def test_a_cp1250_console_does_not_crash_on_the_check_marks(monkeypatch):
     with pytest.raises(SystemExit):
         main(["--bogus"])
     print("✘ ✔")
+
+
+def _fake_ohbot_server():
+    import http.server
+    import threading
+
+    class H(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = b'{"values": {}, "voices": ["coral"], "gestures": []}'
+            self.send_response(200 if self.path == "/api/settings" else 404)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def test_a_second_launch_opens_the_running_app_instead_of_fighting_for_the_robot_port(monkeypatch):
+    # regression: a forgotten console window kept COM3, and the next double-click said "COM3 not connected"
+    import ohbotchat.__main__ as cli
+
+    srv = _fake_ohbot_server()
+    port = srv.server_address[1]
+    opened = []
+    monkeypatch.setattr(cli.webbrowser, "open", opened.append)
+    monkeypatch.setattr(cli, "_web", lambda *a: (_ for _ in ()).throw(AssertionError("started a second app")))
+    try:
+        assert main(["--port", str(port)]) == 0
+        assert opened == [f"http://127.0.0.1:{port}/"]
+        assert main(["doctor", "--port", str(port)]) == 1  # doctor would find the robot port busy
+    finally:
+        srv.shutdown()
+
+
+def test_a_foreign_server_on_the_port_is_not_taken_for_ohbot():
+    import http.server
+    import threading
+
+    from ohbotchat.__main__ import _already_running
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), http.server.SimpleHTTPRequestHandler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        assert not _already_running(srv.server_address[1])
+        assert not _already_running(_free_port())
+    finally:
+        srv.shutdown()
