@@ -134,8 +134,6 @@ class App:
             for key, value in keys.items():
                 setattr(getattr(self.config, section), key, value)
         self.mic.segmenter.set_silence_ms(self.config.vad.silence_ms)
-        if "colours" in values:
-            self.robot.repaint()
         if self.config.openai.tts_voice != voice or self.config.conversation.filler_phrases != fillers:
             if self._ensure_task:  # it would finish the old voice's phrases, or write new ones into the old folder
                 self._ensure_task.cancel()

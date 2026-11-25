@@ -249,12 +249,8 @@ async function api(method, path, body) {
 const fail = (e) => toast("Nie udało się: " + e.message);
 
 const fields = () => document.querySelectorAll("#settings-panel [data-key]");
-// the robot's eye LEDs take 0-10 per channel; the colour picker speaks #rrggbb
-const toRgb = (hex) => [1, 3, 5].map((i) => Math.round(parseInt(hex.slice(i, i + 2), 16) / 25.5));
-const toHex = (rgb) => "#" + rgb.map((v) => Math.round(v * 25.5).toString(16).padStart(2, "0")).join("");
 const fieldValue = (el) =>
   el.type === "checkbox" ? el.checked
-  : el.type === "color" ? toRgb(el.value)
   : el.type === "range" || el.type === "number" ? Number(el.value)
   : "list" in el.dataset ? el.value.split("\n").map((s) => s.trim()).filter(Boolean)
   : el.value;
@@ -273,7 +269,6 @@ async function openSettings() {
     const [section, key] = el.dataset.key.split(".");
     const v = d.values[section][key];
     if (el.type === "checkbox") el.checked = v;
-    else if (el.type === "color") el.value = toHex(v);
     else el.value = Array.isArray(v) ? v.join("\n") : v;
     showValue(el);
   }
@@ -296,7 +291,6 @@ for (const el of fields()) {
   el.addEventListener("input", () => showValue(el));
   el.addEventListener("change", () => {
     const [section, key] = el.dataset.key.split(".");
-    if (el.type === "color") el.value = toHex(fieldValue(el)); // show the shade the robot can actually make
     api("POST", "/api/settings", { [section]: { [key]: fieldValue(el) } }).catch(fail);
   });
 }

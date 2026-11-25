@@ -205,9 +205,6 @@ class Robot:
     def _apply_colour(self) -> None:
         self._guard(self._driver.eye_colour, *self._colour())
 
-    def repaint(self) -> None:
-        self._submit(self._apply_colour)
-
     def set_state(self, state: State) -> None:
         self._state = state
         self._submit(self._driver.eye_colour, *self._colour())

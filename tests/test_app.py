@@ -1019,14 +1019,6 @@ async def test_apply_settings_switches_voice_cache_and_vad_silence():
     assert app.mic.segmenter._silence_frames == 900 // 30
 
 
-async def test_apply_settings_repaints_the_eyes_with_a_new_colour():
-    app, driver = make()
-    app.apply_settings({"colours": {"idle": [1, 2, 3]}})
-    await asyncio.sleep(0.05)
-    assert [c for c in driver.calls if c[0] == "eye"][-1] == ("eye", 1, 2, 3)
-    await app.close()
-
-
 async def test_manual_gesture_runs_and_pauses_idle():
     app, driver = make()
     app.config.robot.gesture_step_s = 0

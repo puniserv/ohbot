@@ -233,12 +233,6 @@ def _texts(max_items: int, max_len: int):
     return check
 
 
-def _rgb(v):
-    if not isinstance(v, list) or len(v) != 3:
-        raise ValueError("expected [r, g, b]")
-    return [_number(int, 0, 10)(c) for c in v]
-
-
 def _voice(v):
     if v not in VOICES:
         raise ValueError("unknown voice")
@@ -261,7 +255,6 @@ EDITABLE = {
         "head_speed": _number(int, 1, 10),
         "eye_rate": _number(float, 0.05, 1),
     },
-    "colours": {k: _rgb for k in ("idle", "listening", "thinking", "speaking", "error")},
     "openai": {"tts_voice": _voice},
     "barge_in": {"threshold": _number(float, 0, 1)},
     "vad": {"silence_ms": _number(int, 200, 5000)},
