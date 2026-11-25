@@ -1,9 +1,9 @@
 # Ohbot chat on Windows
 
-## Install (prebuilt folder)
+## Install (zip)
 
-1. Copy the whole `ohbot-chat` folder (from `dist\ohbot-chat`) to the target PC, for example to `C:\Ohbot\ohbot-chat`. The exe needs every file in that folder.
-2. Create `.env` in the same folder as `ohbot-chat.exe` (use `.env.example` from the repo as a template):
+1. Unzip `ohbot-chat.zip` (from `dist\`) on the target PC, for example to `C:\Ohbot`. This gives `C:\Ohbot\ohbot-chat\ohbot-chat.exe`. The exe needs every file in that folder.
+2. Enter the OpenAI key in "Ustawienia" > "Klucz OpenAI" after the first start. The app writes it to `.env` next to the exe. You can also create that `.env` by hand (template: `.env.example` in the repo):
 
    ```
    OPENAI_API_KEY=sk-...
@@ -44,7 +44,7 @@ powershell -ExecutionPolicy Bypass -File packaging\windows\build.ps1
 ```
 
 The script runs `uv sync` with the `build` and `desktop` groups, then runs PyInstaller with `packaging\ohbotchat.spec`.
-The result is `dist\ohbot-chat\` (a one-folder build). `dist\` and `build\` are git-ignored.
+The result is `dist\ohbot-chat\` (a one-folder build) and the same folder zipped as `dist\ohbot-chat.zip`. `dist\` and `build\` are git-ignored.
 PyInstaller cannot cross-compile, so a Windows exe has to be built on Windows.
 
 ## Run from source
