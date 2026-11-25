@@ -65,7 +65,7 @@ async def test_happy_path_and_stage_order():
     eng, bus = make(client)
     q = bus.subscribe()
     reply = await eng.respond("Cześć robot", [{"role": "user", "content": "a"}])
-    assert (reply.heard, reply.text, reply.pcm) == ("Cześć robot", "Cześć!", b"\x01\x00" * 10)
+    assert (reply.text, reply.pcm) == ("Cześć!", b"\x01\x00" * 10)
     names = [n for n, s in await stages(q) if s == "start"]
     assert names == ["moderation_in", "chat", "moderation_out", "tts"]
     chat = dict(client.calls)["chat"]

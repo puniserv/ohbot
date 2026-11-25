@@ -196,8 +196,11 @@ class App:
             if face is not None and now - face.t > STALE_FACE_S:
                 face = None
             if not self.asleep:
-                self.robot.tick(now, face)
-                self._auto_greet(now, face)
+                try:
+                    self.robot.tick(now, face)
+                    self._auto_greet(now, face)
+                except Exception:  # else one bad tick ends tracking, blinking and the reconnect until restart
+                    log.exception("tick failed")
             await asyncio.sleep(TICK_S)
 
     def _auto_greet(self, now: float, face) -> None:

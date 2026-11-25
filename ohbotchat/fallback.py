@@ -1,4 +1,5 @@
 import hashlib
+import os
 from pathlib import Path
 
 from .engine import EngineError
@@ -28,12 +29,19 @@ class Fallback:
     def cached(self, text: str) -> bytes | None:
         return self.get(self._text_key(text))
 
-    def store(self, text: str, pcm: bytes) -> None:
+    def _write(self, name: str, pcm: bytes) -> None:
+        # a crash mid-write must not leave a cut-off file that counts as cached forever
         self.dir.mkdir(parents=True, exist_ok=True)
-        (self.dir / f"{self._text_key(text)}.pcm").write_bytes(pcm)
+        tmp = self.dir / f".{name}.tmp"
+        tmp.write_bytes(pcm)
+        os.replace(tmp, self.dir / name)
+
+    def store(self, text: str, pcm: bytes) -> None:
+        self._write(f"{self._text_key(text)}.pcm", pcm)
 
     def complete(self, fillers: list[str]) -> bool:
-        return all(self.get(k) is not None for k in PHRASES) and all(self.cached(t) is not None for t in fillers)
+        names = [*PHRASES, *map(self._text_key, fillers)]
+        return all((self.dir / f"{n}.pcm").is_file() for n in names)
 
     async def ensure(self, engine, fillers: list[str]) -> None:
         """Generates missing phrases; offline, or a flagged filler, just leaves them missing.
@@ -51,4 +59,4 @@ class Fallback:
                 pcm = await speak(text, publish=False)
             except EngineError:
                 continue
-            path.write_bytes(pcm)
+            self._write(name, pcm)

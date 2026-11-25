@@ -164,8 +164,12 @@ class Listener:
         stream, self._stream = self._stream, None
         if stream is None:
             return b""
-        stream.stop()
-        stream.close()
         pcm, self._chunks = b"".join(self._chunks), []
-        self._bus.publish("level", level=0.0)
+        try:
+            stream.stop()  # raises when the mic was unplugged mid-recording
+        finally:
+            try:
+                stream.close()
+            finally:
+                self._bus.publish("level", level=0.0)
         return pcm

@@ -34,7 +34,7 @@ class FakeEngine:
             on_safe()
         if self.fail and self.fail_stage == "reply":
             raise self.fail
-        return Reply(heard=heard, text="Hej!", pcm=SPEECH_PCM)
+        return Reply(text="Hej!", pcm=SPEECH_PCM)
 
     async def synthesize(self, text):
         return b"\x00\x00"
@@ -778,7 +778,7 @@ async def test_mic_lost_during_stt_then_ignored_ends_idle(mode, transcript):
 
 class GestureEngine(FakeEngine):
     async def respond(self, heard, history, on_safe=None):
-        return Reply(heard=heard, text="Tak!", pcm=SPEECH_PCM, gesture="yes")
+        return Reply(text="Tak!", pcm=SPEECH_PCM, gesture="yes")
 
 
 async def test_reply_gesture_runs_on_the_robot_while_speaking():

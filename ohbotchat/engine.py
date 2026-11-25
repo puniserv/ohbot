@@ -14,7 +14,6 @@ class EngineError(Exception):
 
 @dataclass
 class Reply:
-    heard: str  # transcript of the user utterance
     text: str  # assistant reply text
     pcm: bytes  # 24 kHz mono s16le
     gesture: str | None = None  # one of GESTURES

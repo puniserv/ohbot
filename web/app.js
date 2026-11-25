@@ -85,6 +85,9 @@ function applySettings(s) {
   barge = s.barge_in;
   $("barge-on").checked = barge.enabled;
   $("barge-threshold").value = barge.threshold;
+  const field = document.querySelector('[data-key="barge_in.threshold"]'); // the same value in the settings panel
+  field.value = barge.threshold;
+  showValue(field);
 }
 
 function toast(text) {

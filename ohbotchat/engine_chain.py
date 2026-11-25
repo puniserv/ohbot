@@ -189,4 +189,4 @@ class ChainEngine:
         if not text:
             raise EngineError("other", "empty chat reply")
         await self._moderate("moderation_out", text)
-        return Reply(heard=heard, text=text, pcm=await self.synthesize(text), gesture=gesture)
+        return Reply(text=text, pcm=await self.synthesize(text), gesture=gesture)
