@@ -304,3 +304,14 @@ def test_a_second_start_without_stop_halts_the_first_thread():
     first.join(2)
     assert not first.is_alive()
     r.vision.stop()
+
+
+def test_preview_jpeg_only_while_someone_watches_and_gone_after_release():
+    r = rig()
+    r.vision.step(0)
+    assert r.vision.jpeg is None  # nobody watching: no JPEG work per frame
+    r.vision.viewers = 1
+    r.vision.step(1)
+    assert r.vision.jpeg.startswith(b"\xff\xd8")
+    r.vision.stop()
+    assert r.vision.jpeg is None  # asleep: no stale picture of the room

@@ -274,6 +274,12 @@ async function openSettings() {
   promptSaved = (await api("GET", "/api/persona/" + encodeURIComponent(promptPersona))).text;
   $("prompt").value = promptSaved;
   $("settings-panel").hidden = false;
+  $("camera-view").src = "/camera.mjpg";
+}
+
+function closeSettings() {
+  $("settings-panel").hidden = true;
+  $("camera-view").removeAttribute("src"); // ends the stream, so the server stops encoding frames
 }
 
 for (const el of fields()) {
@@ -285,7 +291,7 @@ for (const el of fields()) {
 }
 
 $("settings").onclick = () => openSettings().catch(fail);
-$("settings-close").onclick = () => ($("settings-panel").hidden = true);
+$("settings-close").onclick = closeSettings;
 $("voice-sample").onclick = () => send({ cmd: "voice_sample", voice: $("voice").value });
 $("settings-save").onclick = async () => {
   try {

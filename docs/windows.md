@@ -25,7 +25,7 @@
 
 The robot turns its eyes and head toward the nearest face and greets a child who walks up. Settings are in "Ustawienia" > "Kamera" and in `[camera]` in `config.toml`.
 
-**Privacy:** camera frames never leave the app. They are not saved, not logged, and not sent to OpenAI or to the browser. The UI receives only the face position (the dot in "Kamera").
+**Privacy:** camera frames never leave the computer. They are not saved, not logged, and not sent to OpenAI. While "Ustawienia" is open, the page on this computer (127.0.0.1 only) shows a live preview under the face dot; closing "Ustawienia" ends it.
 
 - Windows: Settings > Privacy & security > Camera: turn on "Camera access" and "Let desktop apps access your camera".
 - macOS (run from source): System Settings > Privacy & Security > Camera: allow the terminal app that runs `uv run ohbotchat`.
@@ -58,7 +58,7 @@ Here `.env` goes in the repo root.
 
 ## Privacy (for the operator)
 
-- **What leaves the computer:** what children say and the robot's replies go to OpenAI: their speech for transcription, the transcript and the reply for moderation, the conversation for the chat model, and the reply text for speech synthesis. Camera frames never leave the app; only the face position is used.
+- **What leaves the computer:** what children say and the robot's replies go to OpenAI: their speech for transcription, the transcript and the reply for moderation, the conversation for the chat model, and the reply text for speech synthesis. Camera frames never leave the computer; the local preview in "Ustawienia" is not recorded.
 - **Retention:** per OpenAI's "Your data" page for the API, data sent to the API is not used to train models unless the account opts in. Abuse monitoring logs are kept for up to 30 days, longer only where the law requires it. Check the current wording at developers.openai.com before a workshop.
 - **Children:** tell the school or the parents before a session and get parental consent where the law requires it (in the EU, GDPR). OpenAI's terms set a minimum age and need a parent's or guardian's permission for minors, and its usage policies cover services used by minors. Check that your use follows them.
 - **Modes:** only push-to-talk ("Przycisk") limits what is uploaded to what a child says while holding the button. In "Słowo „Ohbot”" and "Ciągła rozmowa" every utterance in the room is sent to OpenAI, because the wake word is only matched after transcription. The app shows this under the mode selector.

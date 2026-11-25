@@ -8,6 +8,7 @@ from functools import partial
 
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import MODES, VOICES, editable_settings, save_settings, validate_settings, write_atomic
@@ -62,7 +63,23 @@ async def _run_doctor(app) -> list:
 
 
 def server_config(web_app: FastAPI, port: int = DEFAULT_PORT) -> uvicorn.Config:
-    return uvicorn.Config(web_app, host=HOST, port=port, log_level="warning")
+    # an open camera preview is an endless response; without the timeout Ctrl+C would wait for it forever
+    return uvicorn.Config(web_app, host=HOST, port=port, log_level="warning", timeout_graceful_shutdown=2)
+
+
+async def mjpeg(vision, disconnected: Callable[[], Awaitable[bool]], interval: float = 0.1):
+    """multipart/x-mixed-replace parts of the latest camera frame, each new frame once."""
+    vision.viewers += 1
+    try:
+        last = None
+        while not await disconnected():
+            jpeg = vision.jpeg
+            if jpeg is not None and jpeg is not last:
+                last = jpeg
+                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
+            await asyncio.sleep(interval)
+    finally:
+        vision.viewers -= 1
 
 
 def _same_origin(conn: WebSocket | Request, allowed_hosts) -> bool:
@@ -262,6 +279,10 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             if app.listener.recording:
                 app.ptt_abort()
             set_panel(ws, False)  # a closed tab cannot close its test panel
+
+    @api.get("/camera.mjpg", dependencies=[Depends(guard)])
+    def camera(request: Request) -> StreamingResponse:
+        return StreamingResponse(mjpeg(app.vision, request.is_disconnected), media_type="multipart/x-mixed-replace; boundary=frame")
 
     @api.get("/api/settings", dependencies=[Depends(guard)])
     def get_settings() -> dict:

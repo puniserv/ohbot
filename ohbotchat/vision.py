@@ -104,6 +104,8 @@ class Vision:
         self._thread: threading.Thread | None = None
         self.face: Face | None = None
         self.ok: bool | None = None  # None before the first frame and while disabled
+        self.viewers = 0  # open preview streams; JPEG encoding runs only while one is open
+        self.jpeg: bytes | None = None
 
     def start(self) -> None:
         # a fresh Event, because a thread stop() gave up on (stuck in cap.read) must not be revived by wake
@@ -156,6 +158,8 @@ class Vision:
             if not ok:
                 raise OSError("camera returned no frame")
             face = self._find(frame, now)
+            if self.viewers:
+                self.jpeg = self._encode(frame)
         except Exception:
             self._fail(now)
             return
@@ -195,7 +199,15 @@ class Vision:
             self._published_at = now
             self._bus.publish("face", visible=True, x=round(face.x, 2), y=round(face.y, 2))
 
+    def _encode(self, frame: np.ndarray) -> bytes:
+        import cv2
+
+        if self._cfg.camera.mirror:  # so the face sits under the dot, which is mirrored too
+            frame = cv2.flip(frame, 1)
+        return cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tobytes()
+
     def _release(self) -> None:
+        self.jpeg = None
         if self._cap is not None:
             self._cap.release()
             self._cap = None

@@ -582,3 +582,27 @@ def test_a_flagged_filler_phrase_is_rejected_with_a_clear_error(client, app):
     r = client.post("/api/settings", json={"conversation": {"filler_phrases": ["Ok", "brzydko"]}}, headers=ORIGIN)
     assert r.status_code == 400 and "brzydko" in r.json()["detail"] and "filtr" in r.json()["detail"]
     assert app.calls == [("prepare", ["Ok", "brzydko"])]
+
+
+async def test_mjpeg_sends_each_new_frame_once_and_counts_the_viewer():
+    from types import SimpleNamespace
+
+    from ohbotchat.web import mjpeg
+
+    vision = SimpleNamespace(jpeg=b"A", viewers=0)
+    seen = []
+
+    async def disconnected():
+        return len(seen) >= 2
+
+    async for part in mjpeg(vision, disconnected, interval=0):
+        assert vision.viewers == 1
+        seen.append(part)
+        vision.jpeg = b"B" if vision.jpeg == b"A" else vision.jpeg
+    assert seen == [b"--frame\r\nContent-Type: image/jpeg\r\n\r\nA\r\n", b"--frame\r\nContent-Type: image/jpeg\r\n\r\nB\r\n"]
+    assert vision.viewers == 0
+
+
+def test_camera_stream_refuses_a_foreign_host():
+    client = TestClient(create_app(FakeApp()))
+    assert client.get("/camera.mjpg", headers={"host": "evil.example"}).status_code == 403
