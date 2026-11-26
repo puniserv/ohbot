@@ -25,6 +25,28 @@ def test_dotenv_key(tmp_path):
     assert load_config(tmp_path, env={}).api_key == "sk-file"
 
 
+def test_dotenv_key_wins_over_environment(tmp_path):
+    # the UI writes .env; an old OPENAI_API_KEY in the environment must not undo that on restart
+    (tmp_path / ".env").write_text("OPENAI_API_KEY=sk-file\n")
+    assert load_config(tmp_path, env={"OPENAI_API_KEY": "sk-env"}).api_key == "sk-file"
+
+
+def test_save_api_key_never_leaves_the_key_readable_by_others(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    from ohbotchat import config as config_mod
+
+    modes, replace = [], os.replace
+    def spy(src, dst):
+        modes.append(stat.S_IMODE(os.stat(src).st_mode))
+        replace(src, dst)
+    monkeypatch.setattr(config_mod.os, "replace", spy)
+    config_mod.save_api_key(tmp_path, "sk-" + "a" * 40)
+    if os.name == "posix":
+        assert modes == [0o600]
+
+
 def test_repo_config_toml_loads(tmp_path):
     # copied alone, so the committed file is checked without reading the developer's .env
     (tmp_path / "config.toml").write_text((ROOT / "config.toml").read_text(encoding="utf-8"), encoding="utf-8")

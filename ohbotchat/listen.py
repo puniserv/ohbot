@@ -1,3 +1,4 @@
+import logging
 import re
 import unicodedata
 from collections import deque
@@ -6,6 +7,8 @@ from collections.abc import Callable
 from .audio import level
 from .config import Config
 from .events import EventBus
+
+log = logging.getLogger(__name__)
 
 RATE = 16000
 FRAME_MS = 30
@@ -166,10 +169,12 @@ class Listener:
             return b""
         pcm, self._chunks = b"".join(self._chunks), []
         try:
-            stream.stop()  # raises when the mic was unplugged mid-recording
-        finally:
-            try:
-                stream.close()
-            finally:
-                self._bus.publish("level", level=0.0)
+            stream.stop()
+        except Exception:  # mic unplugged mid-recording; callers must still reach their state change
+            log.warning("mic stream stop failed", exc_info=True)
+        try:
+            stream.close()
+        except Exception:
+            log.warning("mic stream close failed", exc_info=True)
+        self._bus.publish("level", level=0.0)
         return pcm

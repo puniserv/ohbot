@@ -106,6 +106,9 @@ class ChainEngine:
     def __init__(self, client, config: Config, bus: EventBus) -> None:
         self._client, self._cfg, self._bus = client, config, bus
 
+    async def aclose(self) -> None:
+        await self._client.close()
+
     async def _stage(self, name: str, call: Callable[[], Awaitable], publish: bool = True):
         if publish:
             self._bus.publish("stage", name=name, status="start")

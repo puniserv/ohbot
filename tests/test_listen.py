@@ -126,6 +126,20 @@ def test_ptt_publishes_level_for_the_meter():
     assert [e.data["level"] for e in q if e.type == "level"] == [pytest.approx(0.5, abs=0.01), 0.0]
 
 
+def test_stop_ptt_survives_a_mic_unplugged_mid_recording():
+    streams = []
+
+    class Unplugged(FakeStream):
+        def stop(self):
+            raise OSError("device lost")
+
+    lis = Listener(Config(), EventBus(), lambda cb: streams.append(Unplugged(cb)) or streams[-1])
+    lis.start_ptt()
+    streams[0].cb(b"ab")
+    assert lis.stop_ptt() == b"ab" and not lis.recording
+    assert streams[0].log[-1] == "close"
+
+
 def test_start_ptt_failure_closes_the_stream_and_allows_a_retry():
     streams = []
 

@@ -110,7 +110,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
         # uvicorn re-raises SIGINT after serve(), which cancels the caller's own cleanup at its first await
         await app.close()
 
-    api = FastAPI(lifespan=lifespan)
+    api = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)  # they would skip guard
     tasks: set[asyncio.Task] = set()
     sleeps: set[asyncio.Task] = set()  # keeps a reference, else the event loop may drop the running task
     panels: set[WebSocket] = set()  # connections with the motion test panel open
@@ -159,12 +159,15 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             log.exception("doctor failed")
             app.bus.publish("error", kind="other", message=f"Diagnostyka nie powiodła się: {e}")
 
+    recorder: dict[str, WebSocket | None] = {"ws": None}
+
     def command(msg: dict, ws: WebSocket) -> None:
         cmd = msg.get("cmd")
         if app.asleep and cmd in ("ptt_start", "new", *MANUAL):
             app.bus.publish("error", kind="other", message=ASLEEP)
             return
         if cmd == "ptt_start":
+            recorder["ws"] = ws
             app.ptt_start()
         elif cmd == "ptt_stop":
             app.ptt_stop()  # the turn runs in App's own task; awaiting it here would block "stop"
@@ -276,7 +279,7 @@ def create_app(app, doctor: Callable[..., Awaitable[list]] = _run_doctor, allowe
             if sender:
                 sender.cancel()
             app.bus.unsubscribe(q)
-            if app.listener.recording:
+            if app.listener.recording and recorder["ws"] is ws:  # another tab closing must not drop the child's recording
                 app.ptt_abort()
             set_panel(ws, False)  # a closed tab cannot close its test panel
 

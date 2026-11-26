@@ -290,11 +290,30 @@ def test_shutdown_closes_the_app(app):
 
 
 def test_disconnect_while_recording_discards_audio(client, app):
-    app.listener.recording = True
     with connect(client) as ws:
         snapshot(ws)
+        ws.send_json({"cmd": "ptt_start"})
+        app.listener.recording = True
     client.get("/")
-    assert app.calls == ["ptt_abort"]
+    assert app.calls[-1] == "ptt_abort"
+
+
+def test_closing_another_tab_keeps_the_recording(client, app):
+    with connect(client) as recorder:
+        snapshot(recorder)
+        recorder.send_json({"cmd": "ptt_start"})
+        app.listener.recording = True
+        with connect(client) as other:
+            snapshot(other)
+        client.get("/")
+        assert "ptt_abort" not in app.calls
+    client.get("/")
+    assert app.calls.count("ptt_abort") == 1
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json"])
+def test_no_unguarded_api_docs(client, path):
+    assert client.get(path).status_code == 404
 
 
 def test_doctor_is_ignored_while_a_run_is_pending(app):

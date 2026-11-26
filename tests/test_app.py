@@ -565,6 +565,15 @@ async def test_bare_wake_word_says_listening_then_accepts_next_utterance(monkeyp
     assert engine.heard == ["opowiedz dowcip"]  # the window is used up
 
 
+async def test_bare_wake_word_shows_fixed_text_not_the_unmoderated_transcript():
+    engine = Recorder("🖕 Ohbot!")
+    app, mic = hands_free("wake", engine)
+    q = app.bus.subscribe()
+    await mic.say()
+    await settle(app)
+    assert [e.data["text"] for e in drain(q) if e.type == "heard"] == ["Ohbot!"]
+
+
 async def test_wake_window_expires():
     engine = Recorder("Ohbot", "opowiedz dowcip")
     app, mic = hands_free("wake", engine)
@@ -1362,6 +1371,26 @@ async def test_a_key_from_the_browser_is_checked_saved_and_used_at_once(tmp_path
     await app.set_api_key(key)
     assert checked == [key] and app.engine is new_engine and app.config.api_key == key
     assert (tmp_path / ".env").read_text(encoding="utf-8") == f"OPENAI_API_KEY={key}\n"
+
+
+async def test_a_new_key_closes_the_old_engine_and_close_closes_the_current_one(tmp_path, monkeypatch):
+    app, _ = make(cfg=Config(root=tmp_path))
+    closed = []
+
+    class Closable(FakeEngine):
+        async def aclose(self):
+            closed.append(self)
+
+    old, new = Closable(), Closable()
+    app.engine = old
+    async def check(key):
+        pass
+    monkeypatch.setattr(app, "_check_key", check)
+    monkeypatch.setattr(app, "_default_engine", lambda: new)
+    await app.set_api_key("sk-" + "k" * 40)
+    assert closed == [old]
+    await app.close()
+    assert closed == [old, new]
 
 
 async def test_a_rejected_key_changes_nothing(tmp_path, monkeypatch):

@@ -29,6 +29,12 @@ GREET_AFTER_S = 1.0  # a child walking past must not be greeted
 STALE_FACE_S = 1.0  # a hung cap.read() must not leave the robot tracking a ghost
 
 
+async def _close_engine(engine) -> None:
+    """Releases the old client's connection pool; test and no-key engines have none."""
+    if close := getattr(engine, "aclose", None):
+        await close()
+
+
 class App:
     """Wires bus, engine, speaker, robot and listener and runs one conversation turn at a time."""
 
@@ -82,7 +88,8 @@ class App:
         await self._check_key(key)
         await asyncio.to_thread(save_api_key, self.config.root, key)
         self.config.api_key = key
-        self.engine = self._default_engine()
+        old, self.engine = self.engine, self._default_engine()
+        await _close_engine(old)
         self._ensure_fallback()  # the fillers could not be recorded without a key
 
     async def _check_key(self, key: str) -> None:
@@ -211,6 +218,7 @@ class App:
         await asyncio.gather(*tasks, return_exceptions=True)
         await asyncio.to_thread(self.vision.stop)
         await asyncio.to_thread(self.robot.close)
+        await _close_engine(self.engine)
 
     async def _tick_loop(self) -> None:
         while True:
@@ -447,7 +455,7 @@ class App:
             return None
         if rest:
             return rest
-        self.bus.publish("heard", text=text)
+        self.bus.publish("heard", text="Ohbot!")  # not `text`: symbols around the wake word were never moderated
         self.bus.publish("reply", text=PHRASES["listening"])
         self._act("heard")
         self._act("reply")

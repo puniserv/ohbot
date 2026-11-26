@@ -184,7 +184,8 @@ def load_config(root: Path = ROOT, env: dict[str, str] | None = None) -> Config:
                     setattr(section, k, v)
     if cfg.conversation.mode not in MODES:
         raise ConfigError(f"config.toml: [conversation] mode = {cfg.conversation.mode!r}; dozwolone: {', '.join(MODES)}")
-    key = env.get("OPENAI_API_KEY") or _read_dotenv(root / ".env").get("OPENAI_API_KEY")
+    # .env first: the UI writes it, and an old OPENAI_API_KEY in the environment must not undo that on restart
+    key = _read_dotenv(root / ".env").get("OPENAI_API_KEY") or env.get("OPENAI_API_KEY")
     cfg.api_key = key or None
     return cfg
 
@@ -387,12 +388,10 @@ def save_api_key(root: Path, key: str) -> None:
             break
     else:
         lines.append(line)
-    write_atomic(path, "\n".join(lines) + "\n")
-    if os.name == "posix":
-        os.chmod(path, 0o600)  # a secret; Windows keeps the folder's ACL
+    write_atomic(path, "\n".join(lines) + "\n", mode=0o600)  # a secret; Windows keeps the folder's ACL
 
 
-def write_atomic(path: Path, text: str) -> None:
+def write_atomic(path: Path, text: str, mode: int | None = None) -> None:
     """A crash or full disk mid-write must leave the old file, not half of the new one."""
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
     try:
@@ -400,7 +399,9 @@ def write_atomic(path: Path, text: str) -> None:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())  # else a power cut can leave an empty config.toml that loads as all defaults
-        os.chmod(tmp, stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644)  # mkstemp makes it owner-only
+        if mode is None:
+            mode = stat.S_IMODE(path.stat().st_mode) if path.exists() else 0o644  # mkstemp makes it owner-only
+        os.chmod(tmp, mode)  # before the replace, so the file is never visible with looser permissions
         os.replace(tmp, path)
     except BaseException:
         os.unlink(tmp)
