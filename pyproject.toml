@@ -3,6 +3,7 @@ name = "ohbotchat"
 version = "0.1.0"
 description = "Polish voice chat for the Ohbot robot via OpenAI"
 requires-python = ">=3.11"
+license = "MIT"
 dependencies = [
     "openai>=3.57",
     "sounddevice",
